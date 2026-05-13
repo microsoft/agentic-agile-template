@@ -10,6 +10,10 @@ assignees: ''
 
 <!-- What does this story deliver? One sentence describing the outcome. -->
 
+## Originating Prompt
+
+<!-- Capture the human prompt that triggered this work. This enables D4 (Partnership Efficiency) evaluation in retrospectives. Paste the exact prompt or a faithful paraphrase. Include any follow-up corrections or clarifications that shaped the final scope. -->
+
 ## Context / Motivation
 
 <!-- Why is this work needed? What problem does it solve or what capability does it enable? -->
