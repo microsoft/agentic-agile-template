@@ -10,6 +10,10 @@ assignees: ''
 
 <!-- What does this story deliver? One sentence describing the outcome. -->
 
+## Originating Prompt
+
+<!-- Capture the original human prompt that triggered this work. This enables D4 (Partnership Efficiency) evaluation in retrospectives. Paste the exact prompt by default. Only use a paraphrase when the exact prompt cannot be retained (for example, due to redaction or privacy requirements), and note that this was necessary. Record any follow-up corrections or clarifications separately below the original prompt, for example as additional quoted text or bullet points, so the originating prompt remains clearly identifiable. -->
+
 ## Context / Motivation
 
 <!-- Why is this work needed? What problem does it solve or what capability does it enable? -->

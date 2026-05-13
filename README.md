@@ -27,6 +27,10 @@ Agentic-Agile Development provides the process layer that makes agent collaborat
 | [`docs/evaluation-framework.md`](docs/evaluation-framework.md) | Eight-dimension framework for measuring the effectiveness of human-agent development partnerships. |
 | [`docs/epic-decomposition-example.md`](docs/epic-decomposition-example.md) | Worked example showing how to decompose an epic into stories, assign file ownership, and plan wave execution. |
 
+### Sample Issues
+
+This repository includes sample issues in the GitHub backlog (labeled `sample` and prefixed `[SAMPLE 1]` / `[SAMPLE 2]`) that demonstrate the agentic-agile workflow: label taxonomy, epic decomposition, wave structure, and the agentic-story template in action. These are **onboarding references only** — do not close, implement, or modify them.
+
 ## Getting Started
 
 ### 1. Clone or Copy This Template
@@ -51,6 +55,8 @@ Open `CLAUDE.md` and replace the placeholder content with your project's informa
 Also update `.github/copilot-instructions.md` with the same core information in shorter form.
 
 ### 3. Create Your First Backlog
+
+> **Issues first:** Every work request must be captured as a GitHub Issue before implementation begins. Include the originating human prompt in the issue (use the "Originating Prompt" section in the issue template) so it's available for retrospectives.
 
 Use the issue template at `.github/ISSUE_TEMPLATE/agentic-story.md` to create your first stories:
 

@@ -56,3 +56,6 @@ project-root/
 - [e.g., "Do not use `any` type in TypeScript"]
 - [e.g., "Do not commit secrets or credentials"]
 - [e.g., "Do not add dependencies without documenting the reason"]
+- Do not start implementation without a corresponding GitHub Issue. Every work request must be tracked.
+- Do not discard the originating human prompt — capture it in the issue's "Originating Prompt" section or as a comment for retrospective use.
+- Do not close, implement, or modify issues labeled `sample`. These are onboarding references (prefixed `[SAMPLE 1]`, `[SAMPLE 2]`), not actionable work items.
