@@ -153,6 +153,7 @@ Plan → Issue → Implement → Review → Merge → Docs
 - [e.g., "No magic numbers. Define constants with descriptive names."]
 - [e.g., "Prefer composition over inheritance"]
 - [e.g., "All API endpoints return consistent response shapes: { data, error, metadata }"]
+- Do not close, implement, or modify issues labeled `sample`. These are onboarding references (prefixed `[SAMPLE 1]`, `[SAMPLE 2]`), not real work items.
 
 ### Error Handling
 

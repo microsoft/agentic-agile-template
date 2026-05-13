@@ -27,6 +27,10 @@ Agentic-Agile Development provides the process layer that makes agent collaborat
 | [`docs/evaluation-framework.md`](docs/evaluation-framework.md) | Eight-dimension framework for measuring the effectiveness of human-agent development partnerships. |
 | [`docs/epic-decomposition-example.md`](docs/epic-decomposition-example.md) | Worked example showing how to decompose an epic into stories, assign file ownership, and plan wave execution. |
 
+### Sample Issues
+
+This repository includes sample issues in the GitHub backlog (labeled `sample` and prefixed `[SAMPLE 1]` / `[SAMPLE 2]`) that demonstrate the agentic-agile workflow: label taxonomy, epic decomposition, wave structure, and the agentic-story template in action. These are **onboarding references only** — do not close, implement, or modify them.
+
 ## Getting Started
 
 ### 1. Clone or Copy This Template
