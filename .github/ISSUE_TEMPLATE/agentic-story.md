@@ -12,7 +12,7 @@ assignees: ''
 
 ## Originating Prompt
 
-<!-- Capture the human prompt that triggered this work. This enables D4 (Partnership Efficiency) evaluation in retrospectives. Paste the exact prompt or a faithful paraphrase. Include any follow-up corrections or clarifications that shaped the final scope. -->
+<!-- Capture the original human prompt that triggered this work. This enables D4 (Partnership Efficiency) evaluation in retrospectives. Paste the exact prompt by default. Only use a paraphrase when the exact prompt cannot be retained (for example, due to redaction or privacy requirements), and note that this was necessary. Record any follow-up corrections or clarifications separately below the original prompt, for example as additional quoted text or bullet points, so the originating prompt remains clearly identifiable. -->
 
 ## Context / Motivation
 
