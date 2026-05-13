@@ -1,7 +1,5 @@
 # Toward an Agentic-Agile Manifesto
 
-> The full version of this manifesto is published on the [Agentic-Agile Development blog](https://developer.microsoft.com/blog/). This document is a standalone reference for teams adopting the methodology.
-
 *A systems approach to strengthening the human-agent partnership: measurement, governance, and the progression from human-directed to collaborative software development.*
 
 We are discovering better ways of developing software through human-agent partnership and helping others do the same.
@@ -91,4 +89,4 @@ The original Agile Manifesto was written by practitioners reflecting on what wor
 
 ---
 
-*Daniel Epstein and Minthe (GitHub Copilot), 2025*
+*The Agentic-Agile Team and Minthe (GitHub Copilot with Claude), 2026*

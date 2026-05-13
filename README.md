@@ -1,6 +1,9 @@
 # Agentic-Agile Template
 
-A starter template for teams adopting [Agentic-Agile Development](https://developer.microsoft.com/blog/): the practice of producing production-ready software through structured human-agent collaboration.
+> [!CAUTION]
+> Agentic-Agile methodology is an **active area of investigation** with the potential for unanticipated results. While models and workflows are improving rapidly, agentic development is inherently non-deterministic. Use good judgement and appropriate safeguards before putting AI-generated work-product into production.
+
+A starter template for teams adopting [Agentic-Agile Development](MANIFESTO.md): the practice of producing production-ready software through structured human-agent collaboration.
 
 ## What is Agentic-Agile Development?
 
@@ -33,14 +36,9 @@ This repository includes sample issues in the GitHub backlog (labeled `sample` a
 
 ## Getting Started
 
-### 1. Clone or Copy This Template
+### 1. Copy This Template
 
-```bash
-# Clone the repository
-git clone https://github.com/mcaps-microsoft/agentic-agile-template.git my-project
-
-# Or use it as a GitHub template (click "Use this template" on GitHub)
-```
+Click **"Use this template"** on the [GitHub repository page](https://github.com/microsoft/agentic-agile-template) to create a new repository with all the template files.
 
 ### 2. Customize Your Agent Context
 
