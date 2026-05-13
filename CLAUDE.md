@@ -131,6 +131,12 @@ Plan → Issue → Implement → Review → Merge → Docs
 - Review findings must reach a terminal state: `fixed`, `accepted` (with justification), or `deferred` (tracked as follow-up issue).
 - Agents can be used for implementation, but review remains a human responsibility until trust is established through measured outcomes.
 
+### Issues-First Rule
+
+- **Every work request must be captured as a GitHub Issue before implementation begins.** Do not start coding without a tracking issue. This ensures traceability from request to delivery.
+- **The originating human prompt must be preserved in the issue** — either in the "Originating Prompt" section of the issue description (see the agentic-story template) or as a comment. This enables retrospective evaluation of prompt quality (D4: Partnership Efficiency).
+- If a human prompt contains multiple work items, create separate issues for each.
+
 ---
 
 ## Coding Conventions

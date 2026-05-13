@@ -52,6 +52,8 @@ Also update `.github/copilot-instructions.md` with the same core information in 
 
 ### 3. Create Your First Backlog
 
+> **Issues first:** Every work request must be captured as a GitHub Issue before implementation begins. Include the originating human prompt in the issue (use the "Originating Prompt" section in the issue template) so it's available for retrospectives.
+
 Use the issue template at `.github/ISSUE_TEMPLATE/agentic-story.md` to create your first stories:
 
 1. **Define an epic** — a feature too large for a single story.
