@@ -17,4 +17,4 @@
 
 ## Notes
 
-This is the original stack used to develop this template. It is the most thoroughly tested combination and receives the highest level of ongoing maintenance. If you are unsure which combo to use, start here.
+This is the original stack used to develop this template. The combo file currently ships as a **Stub** (skeleton structure only) and will be promoted to **Maintained** once the full end-to-end quickstart and verification steps are written and tested against a real downstream repository (planned as a follow-up to the v2 CI/CD adapter layer).

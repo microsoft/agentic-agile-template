@@ -13,7 +13,7 @@ These sample issues were originally filed as live issues to give new users reada
 2. The samples remain stable, citable, and edit-tracked alongside the rest of the documentation.
 3. New users can reference them via repo-relative links without needing to filter the issue tracker.
 
-The original issues are **closed** with comments pointing back to this directory.
+The original live issues will be closed with comments pointing back to this directory as part of the consolidation follow-up. If you are reading this directory while the corresponding live issues are still open in the tracker, that closure step has not yet run.
 
 ## Index
 
@@ -39,7 +39,7 @@ The original issues are **closed** with comments pointing back to this directory
 
 ## Snapshot provenance
 
-Snapshots were taken on 2026-06-05 as part of a consolidation effort to migrate these onboarding examples out of the live issue tracker. The metadata table at the top of each file records the original author, creation date, labels, and a URL back to the original (now-closed) issue for full provenance.
+Snapshots were taken on 2026-06-05 as part of a consolidation effort to migrate these onboarding examples out of the live issue tracker. The metadata table at the top of each file records the original author, creation date, labels, and a URL back to the original issue for full provenance. The live issues will be closed with pointer comments back to these files as part of the consolidation follow-up; until then the URLs resolve to the still-open issues.
 
 ## Note on SAMPLE 2's framing
 

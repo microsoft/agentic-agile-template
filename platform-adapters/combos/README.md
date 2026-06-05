@@ -13,7 +13,7 @@ Combos are the recommended starting point. Instead of manually assembling three 
 | Combo File | Agent Tool | Issue Tracker | CI/CD | Status |
 |------------|-----------|---------------|-------|--------|
 | [`claude-github-github-actions.md`](claude-github-github-actions.md) | Claude Code | GitHub Issues | GitHub Actions | Stub |
-| [`copilot-github-github-actions.md`](copilot-github-github-actions.md) | GitHub Copilot | GitHub Issues | GitHub Actions | Stub |
+| [`github-copilot-github-github-actions.md`](github-copilot-github-github-actions.md) | GitHub Copilot | GitHub Issues | GitHub Actions | Stub |
 | [`cursor-github-github-actions.md`](cursor-github-github-actions.md) | Cursor | GitHub Issues | GitHub Actions | Stub |
 
 > The ci-cd layer is planned for v2. Until then, combos document CI/CD setup as manual steps. See [../ci-cd/README.md](../ci-cd/README.md) for details.
@@ -58,17 +58,17 @@ Combo files follow a strict naming convention:
 ```
 
 Where:
-- `<agent-tool>` is the slug of the agent-tools adapter directory (e.g., `claude`, `copilot`, `cursor`, `windsurf`, `cline`, `aider`)
+- `<agent-tool>` is the slug of the agent-tools adapter directory (e.g., `claude`, `github-copilot`, `cursor`, `windsurf`, `cline`, `aider`)
 - `<issue-tracker>` is the slug of the issue-trackers adapter directory (e.g., `github`)
 - `<ci-cd>` is the slug of the ci-cd adapter (e.g., `github-actions` — once the ci-cd layer ships in v2)
 
 **Examples:**
-- `copilot-github-github-actions.md` — GitHub Copilot + GitHub Issues + GitHub Actions
+- `github-copilot-github-github-actions.md` — GitHub Copilot + GitHub Issues + GitHub Actions
 - `claude-github-github-actions.md` — Claude Code + GitHub Issues + GitHub Actions
 - `cursor-github-github-actions.md` — Cursor + GitHub Issues + GitHub Actions
 
 When the ci-cd layer is not yet configured, use the placeholder slug `none` for the ci-cd segment:
-- `copilot-github-none.md` _(temporary, upgrade to a full ci-cd slug when the layer ships)_
+- `github-copilot-github-none.md` _(temporary, upgrade to a full ci-cd slug when the layer ships)_
 
 ## Combo File Structure
 

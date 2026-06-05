@@ -1,9 +1,10 @@
 # [SAMPLE 2] Customize agent context file (CLAUDE.md)
 
 > **Sample issue** — preserved here as a worked example of the Agentic-Agile issue style.
-> This file is a verbatim snapshot of the original GitHub issue. The live issue has been closed
-> with a pointer back to this file so external contributors can use the public issue tracker for
-> real backlog items.
+> This file is a verbatim snapshot of the original GitHub issue. If the live tracker issue is
+> still open at the time you are reading this, it will be closed with a pointer back to this
+> file as part of the consolidation follow-up, so the public issue tracker stays clear for real
+> backlog items.
 
 ## Metadata
 

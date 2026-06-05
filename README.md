@@ -40,18 +40,15 @@ The `platform-adapters/` directory provides a three-layer architecture that sepa
 platform-adapters/
 ├── agent-tools/           # Agent-specific instruction sets and context files
 │   ├── claude/            # Claude Code conventions and context patterns
-│   ├── copilot/           # GitHub Copilot instruction files
+│   ├── github-copilot/    # GitHub Copilot instruction files
 │   ├── cursor/            # Cursor rules and context
 │   ├── windsurf/          # Windsurf configuration
 │   ├── cline/             # Cline conventions
 │   └── aider/             # Aider conventions
 ├── issue-trackers/        # Workflow templates per issue tracker
-│   ├── github-issues/
-│   └── jira/
-├── ci-cd/                 # CI/CD pipeline templates
-│   ├── github-actions/
-│   └── azure-devops/
-└── combos/                # Tested stack combinations (e.g., cursor + github + actions)
+│   └── github/            # GitHub Issues adapter (more trackers planned)
+├── ci-cd/                 # CI/CD pipeline templates (placeholder — full layer planned for v2)
+└── combos/                # Tested stack combinations (e.g., copilot + github + github-actions)
 ```
 
 During onboarding, [`AGENTS.md`](AGENTS.md) asks which adapters your project needs and activates only those layers. This keeps agent context lean and targeted rather than flooding the agent with instructions for tools you don't use.

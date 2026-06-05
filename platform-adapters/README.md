@@ -14,7 +14,7 @@ Agentic-Agile is platform-agnostic by design. The adapter system bridges the gen
                            ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                 platform-adapters/combos/                       │
-│         (e.g. copilot-github-github-actions.md)                 │
+│         (e.g. github-copilot-github-github-actions.md)          │
 │   Assembled, tested combination of all three layers             │
 └───────────┬─────────────────┬─────────────────────┬────────────┘
             │                 │                     │
@@ -82,7 +82,7 @@ The ci-cd layer is planned for v2. See [ci-cd/README.md](ci-cd/README.md) for wh
 | Combo | Agent Tool | Issue Tracker | CI/CD | Status |
 |-------|-----------|---------------|-------|--------|
 | [`claude-github-github-actions.md`](combos/claude-github-github-actions.md) | Claude Code | GitHub Issues | GitHub Actions | Stub |
-| [`copilot-github-github-actions.md`](combos/copilot-github-github-actions.md) | GitHub Copilot | GitHub Issues | GitHub Actions | Stub |
+| [`github-copilot-github-github-actions.md`](combos/github-copilot-github-github-actions.md) | GitHub Copilot | GitHub Issues | GitHub Actions | Stub |
 | [`cursor-github-github-actions.md`](combos/cursor-github-github-actions.md) | Cursor | GitHub Issues | GitHub Actions | Stub |
 
 > More combos are added as the community contributes. Check [combos/](combos/) for the current list.

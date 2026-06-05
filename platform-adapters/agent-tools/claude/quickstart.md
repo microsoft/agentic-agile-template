@@ -74,7 +74,7 @@ If your team uses more than one AI coding assistant, you can maintain parallel a
 |------------|-----------|-------|
 | Claude | `CLAUDE.md` | Auto-loaded at repo root |
 | GitHub Copilot | `.github/copilot-instructions.md` | Copilot-specific, typically shorter |
-| Cursor | `.cursor/rules` or `CURSOR.md` | Cursor-specific conventions |
+| Cursor | `.cursorrules` (or `.cursor/rules/` directory of `.mdc` files) | Cursor-specific conventions; see [`platform-adapters/agent-tools/cursor/`](../cursor/) |
 | _Universal_ | `AGENTS.md` | Cross-agent canonical entry point (`agents.md` convention) |
 
 **Recommended approach:** Maintain a comprehensive `CLAUDE.md` as the source of truth, then create shorter adapter files for other tools that reference or summarize it. Avoid duplicating content — keep one authoritative source and derive the others.

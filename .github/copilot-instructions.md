@@ -8,8 +8,7 @@
 platform-adapters/agent-tools/github-copilot/copilot-instructions.md
 ```
 
-This stub remains at `.github/copilot-instructions.md` because GitHub auto-discovers it from that path.
-After Phase 2, the adapter's `quickstart.md` will explain how to copy the full content here.
+This stub remains at `.github/copilot-instructions.md` because GitHub auto-discovers it from that path. The adapter's [`quickstart.md`](../platform-adapters/agent-tools/github-copilot/quickstart.md) explains how to copy the full content here when adopting this template in a downstream repo.
 
 ## Why This Moved
 
