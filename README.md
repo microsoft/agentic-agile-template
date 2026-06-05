@@ -128,14 +128,9 @@ And 13 principles for human-agent software development. Read the full manifesto:
 
 ## Blog Series
 
-This template accompanies the Agentic-Agile Development blog series:
+This template accompanies the Agentic-Agile Development blog series. The first post is published; additional posts are forthcoming.
 
-- [Why Agent Development Needs Agile (Not Just Prompts)](https://developer.microsoft.com/blog/)
-- [Backlog Grooming and Retrospectives for Human-Agent Teams](https://developer.microsoft.com/blog/)
-- [Spec-First Decomposition: The Foundation of Agent Parallelism](https://developer.microsoft.com/blog/)
-- [Agent Swarming in Practice: From Days to Hours](https://developer.microsoft.com/blog/)
-- [Risks, Governance, and Mitigations](https://developer.microsoft.com/blog/)
-- [Toward a Repeatable Model for Human-Agent Development](https://developer.microsoft.com/blog/)
+- [Why Agent Development Needs Agile (Not Just Prompts)](https://devblogs.microsoft.com/blog/agentic-agile-why-agent-development-needs-agile-not-just-prompts)
 
 ## MCP Configuration
 
