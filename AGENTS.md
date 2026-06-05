@@ -24,7 +24,7 @@ This repository is built on the **Agentic-Agile Template** — a starter framewo
 | `CONTRIBUTING.md` | Human contribution workflow and PR guidelines. |
 | `SECURITY.md` | Security policy and vulnerability reporting process. |
 | `mcp.json` | Example MCP server configuration for agent tooling. |
-| `platform-adapters/` | **Per-tool agent context files.** Find your adapter here. Organized by tool (claude, copilot, cursor, aider, cline, …). |
+| `platform-adapters/` | **Layered agent / tracker / CI-CD context.** Three sub-layers: `agent-tools/` (one adapter per AI agent), `issue-trackers/` (one per backlog system), `ci-cd/` (planned v2), plus `combos/` for pre-assembled stacks. |
 | `docs/agent-surface-selection.md` | Guide to choosing the right agent surface for different task types. |
 | `docs/evaluation-framework.md` | Eight-dimension framework for measuring human-agent partnership effectiveness. |
 | `docs/epic-decomposition-example.md` | Worked example: decompose an epic into stories, assign file ownership, plan waves. |

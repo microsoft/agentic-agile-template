@@ -45,7 +45,7 @@ This file:
 ### 3. `quickstart.md`
 A short, runnable guide that a new contributor can follow to install the adapter into their own project. Should include: where to copy the target file, how the agent auto-discovers it, any required configuration, and a compatibility table for use alongside other agents.
 
-> Adapters should be self-contained: per `CONTRIBUTING-AGENTS.md` §"What Not to Break" #3, an agent-tools adapter must not cross-reference another adapter's target file.
+> Adapters within the **agent-tools** layer should keep their target file (e.g., `CLAUDE.md`, `.cursorrules`, `.windsurfrules`) independent of any specific issue-tracker or ci-cd choice — per `CONTRIBUTING-AGENTS.md` §"What Not to Break" #3, the three layers (agent-tools / issue-trackers / ci-cd) must remain independently swappable. Multi-tool compatibility tables within an adapter's `quickstart.md` (referencing other agent-tools adapters in the same layer) are expected and encouraged.
 
 ## Relationship to Other Layers
 
