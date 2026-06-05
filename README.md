@@ -9,30 +9,61 @@ A starter template for teams adopting [Agentic-Agile Development](MANIFESTO.md):
 
 Agentic-Agile Development bridges Agile process values with the capabilities of AI coding agents. It is a methodology for building software through human-agent partnerships, not just using agents as autocomplete tools.
 
-The core insight: agents fail not because of model capability, but because of coordination breakdown. When you give an agent a vague prompt, you get vague output. When you give it a well-specified story with acceptance criteria, file boundaries, and negative constraints, you get production-quality code. The specification is the program.
+The core insight: agents fail not because of model capability, but because of coordination breakdown. When you give an agent a vague prompt, you get vague output. When you give it a well-specified story with acceptance criteria, file boundaries, and negative constraints, you get production-quality code. **The specification is the program.**
 
 Agentic-Agile Development provides the process layer that makes agent collaboration repeatable: structured backlogs, spec-first stories, wave-based parallel execution, built-in governance, and continuous measurement across eight dimensions. Teams that adopt these patterns shift from "hoping the agent gets it right" to systematically improving their human-agent partnership over time.
 
 ## What's in This Repo
 
-| File | Description |
+| File / Directory | Description |
 |------|-------------|
-| [`CLAUDE.md`](CLAUDE.md) | Agent context template. Provides AI coding agents with project-specific context so they produce output that fits your conventions from the first interaction. |
+| [`AGENTS.md`](AGENTS.md) | Universal onboarding orchestrator. Any AI coding agent reads this first. It guides a structured 6-step onboarding dialogue and activates the platform adapters appropriate for your toolchain. |
+| [`CONTRIBUTING-AGENTS.md`](CONTRIBUTING-AGENTS.md) | Guide for agents contributing to this template repository. Covers adapter anatomy, structural invariants, and how to add new adapters or quickstart combos. |
+| [`platform-adapters/`](platform-adapters/) | Three-layer adapter library: agent-tool instructions, issue-tracker integrations, and CI/CD configurations. Mix and match for your stack. |
+| [`.github/contributor-templates/`](.github/contributor-templates/) | PR and issue templates for both human and agent contributors following Agentic-Agile story structure. |
 | [`MANIFESTO.md`](MANIFESTO.md) | The Agentic-Agile Manifesto: 5 values and 13 principles for human-agent software development. |
 | [`STYLE.md`](STYLE.md) | Style guide template covering code conventions, documentation, commit messages, and PR format. |
-| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Contribution guidelines following the Agentic-Agile workflow. |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Human contribution guidelines following the Agentic-Agile workflow. |
 | [`SECURITY.md`](SECURITY.md) | Standard security policy and vulnerability reporting process. |
 | [`LICENSE`](LICENSE) | MIT License. |
 | [`mcp.json`](mcp.json) | Example MCP (Model Context Protocol) server configuration for agent tooling. |
-| [`.github/copilot-instructions.md`](.github/copilot-instructions.md) | GitHub Copilot-specific instruction file (shorter subset of CLAUDE.md). |
 | [`.github/ISSUE_TEMPLATE/agentic-story.md`](.github/ISSUE_TEMPLATE/agentic-story.md) | Issue template for structured Agentic-Agile stories with scope, file ownership, and acceptance criteria. |
 | [`docs/agent-surface-selection.md`](docs/agent-surface-selection.md) | Guide to choosing the right agent surface (CLI, IDE, chat, API, cloud) for different task types. |
 | [`docs/evaluation-framework.md`](docs/evaluation-framework.md) | Eight-dimension framework for measuring the effectiveness of human-agent development partnerships. |
 | [`docs/epic-decomposition-example.md`](docs/epic-decomposition-example.md) | Worked example showing how to decompose an epic into stories, assign file ownership, and plan wave execution. |
 
+## Platform Adapter Architecture
+
+The `platform-adapters/` directory provides a three-layer architecture that separates agent-tool conventions, issue-tracker workflows, and CI/CD integrations. Each layer is independently swappable — change your issue tracker without touching your agent instructions, or adopt a new CI system without rewriting your agent conventions.
+
+```
+platform-adapters/
+├── agent-tools/           # Agent-specific instruction sets and context files
+│   ├── claude/            # Claude Code conventions and context patterns
+│   ├── copilot/           # GitHub Copilot instruction files
+│   ├── cursor/            # Cursor rules and context
+│   ├── windsurf/          # Windsurf configuration
+│   ├── cline/             # Cline conventions
+│   └── aider/             # Aider conventions
+├── issue-trackers/        # Workflow templates per issue tracker
+│   ├── github-issues/
+│   └── jira/
+├── ci-cd/                 # CI/CD pipeline templates
+│   ├── github-actions/
+│   └── azure-devops/
+└── combos/                # Tested stack combinations (e.g., cursor + github + actions)
+```
+
+During onboarding, [`AGENTS.md`](AGENTS.md) asks which adapters your project needs and activates only those layers. This keeps agent context lean and targeted rather than flooding the agent with instructions for tools you don't use.
+
 ### Sample Issues
 
-This repository includes sample issues in the GitHub backlog (labeled `sample` and prefixed `[SAMPLE 1]` / `[SAMPLE 2]`) that demonstrate the agentic-agile workflow: label taxonomy, epic decomposition, wave structure, and the agentic-story template in action. These are **onboarding references only** — do not close, implement, or modify them.
+This repository ships with two sets of **worked-example issues** under [`docs/sample-issues/`](docs/sample-issues/) that illustrate the Agentic-Agile workflow — label taxonomy, epic decomposition, wave structure, and the agentic-story template in action.
+
+- **SAMPLE 1 — TaskFlow** ([`docs/sample-issues/`](docs/sample-issues/), files prefixed `05`–`09`): a hypothetical task-management REST API used to demonstrate epic decomposition, dependency mapping, and wave-based parallel execution.
+- **SAMPLE 2 — Onboarding walkthrough** ([`docs/sample-issues/`](docs/sample-issues/), files prefixed `10`–`14`): a worked example of an external contributor's first few stories when adopting this template.
+
+These are **read-only onboarding references** — kept in version-controlled markdown rather than in the live issue tracker so the issue tracker stays clean for real backlog items. See [`docs/sample-issues/README.md`](docs/sample-issues/README.md) for the full index and provenance.
 
 ## Getting Started
 
@@ -40,17 +71,20 @@ This repository includes sample issues in the GitHub backlog (labeled `sample` a
 
 Click **"Use this template"** on the [GitHub repository page](https://github.com/microsoft/agentic-agile-template) to create a new repository with all the template files.
 
-### 2. Customize Your Agent Context
+Then open the project in your AI coding agent of choice (Claude Code, Cursor, Copilot, Windsurf, Cline, or Aider).
 
-Open `CLAUDE.md` and replace the placeholder content with your project's information:
+### 2. Follow the Guided Onboarding Dialogue
 
-- **Project Purpose:** What your project does, who it's for, what stack it uses.
-- **Repository Structure:** Your actual directory layout.
-- **Coding Conventions:** Your language-specific rules (naming, error handling, logging).
-- **Testing Strategy:** Your test framework, organization, and coverage expectations.
-- **Build and Run Commands:** How to install, build, test, and lint your project.
+Direct your agent to [`AGENTS.md`](AGENTS.md). It will run a structured 6-step onboarding dialogue:
 
-Also update `.github/copilot-instructions.md` with the same core information in shorter form.
+1. **Orient** — the agent announces that the repository is in template state and asks you to confirm you're ready to start.
+2. **Assess Familiarity** — the agent asks whether you've used this template before, and calibrates its explanations accordingly.
+3. **Collect Inputs** — the agent asks five questions, one at a time: project name, agent tools your team will use, issue tracker, CI/CD system (deferrable), and any existing contribution conventions (deferrable).
+4. **Confirm and Scaffold** — the agent summarizes what it collected and creates two commits: one exact copy of the unmodified template as a baseline, then a second commit with your customizations applied.
+5. **Hand Off** — the agent explains which placeholders still need manual completion and what to do next.
+6. **Verify** — the agent runs a checklist to confirm the repository is fully configured before closing the session.
+
+After this dialogue, agents reading the repository enter configured state and go directly to task execution on subsequent sessions.
 
 ### 3. Create Your First Backlog
 
@@ -131,7 +165,7 @@ Browse available MCP servers at [modelcontextprotocol.io](https://modelcontextpr
 
 ## Contributing
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) for guidelines on contributing to this template.
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for human contribution guidelines and [`CONTRIBUTING-AGENTS.md`](CONTRIBUTING-AGENTS.md) for agent-specific contribution patterns, story format requirements, and wave governance rules.
 
 ## License
 
