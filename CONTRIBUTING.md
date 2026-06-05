@@ -27,6 +27,10 @@ This project practices what it preaches. Contributions follow the Agentic-Agile 
 5. **Submit PR.** Reference the issue number. Describe what changed and why.
 6. **Review.** A maintainer will review your PR. Expect questions about scope, clarity, and consistency with existing templates.
 
+### Agent Contributors
+
+If you're an AI coding agent contributing to this template, read [`CONTRIBUTING-AGENTS.md`](CONTRIBUTING-AGENTS.md) for agent-specific guidance including structural invariants, adapter anatomy, and contributor templates.
+
 ### What Makes a Good Contribution
 
 - **Template improvements:** Clearer placeholder text, better examples, additional sections that teams commonly need.
@@ -57,7 +61,7 @@ Use clear, descriptive commit messages:
 <optional longer description>
 ```
 
-Types: `docs`, `template`, `example`, `fix`, `chore`
+Types: `feat`, `docs`, `template`, `example`, `fix`, `chore`
 
 Example:
 ```

@@ -1,0 +1,3 @@
+# GitHub Copilot Agent Tool Adapter
+
+This adapter provides the context file template for [GitHub Copilot](https://github.com/features/copilot). Copilot reads `.github/copilot-instructions.md` automatically in VS Code, GitHub.com, and JetBrains IDEs to apply project-specific context to all suggestions — copy the `copilot-instructions.md` template from this directory to `.github/copilot-instructions.md` in your repository, fill in the placeholders, and Copilot will use it as project context immediately. Keep the file concise: Copilot works best with focused, actionable instructions rather than exhaustive documentation.
