@@ -238,7 +238,7 @@ Walk through this checklist before marking a PR ready for review:
    ```
    platform-adapters/combos/<agent-tool>-<issue-tracker>-<ci-cd>.md
    ```
-   Use the layer slugs from each adapter directory name. If the CI/CD layer is not yet configured, use `none` as a temporary placeholder for the ci-cd segment.
+   Use the layer slugs from each adapter directory name (e.g., `github-copilot`, `claude`, `cursor` for `<agent-tool>`; `github` for `<issue-tracker>`). The ci-cd layer is planned for v2 — until those adapters ship, use the forward-looking slug `github-actions` (matching the currently-shipped Stubs) or `none` for combos that are intentionally CI/CD-agnostic; see `platform-adapters/combos/README.md` for the authoritative naming guidance.
 
 4. **Create the combo file** following the structure defined in `platform-adapters/combos/README.md`. Set status to **Stub** initially.
 

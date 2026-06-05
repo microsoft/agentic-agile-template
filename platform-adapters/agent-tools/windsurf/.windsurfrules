@@ -1,7 +1,7 @@
 # Research note: The official Windsurf rules filename was verified against
 # community documentation and the Codeium blog — `.windsurfrules` is the
 # established convention for the repository root and continues to be supported.
-# Starting with Wave 8, Windsurf also introduced a directory-based system at
+# Newer Windsurf versions also introduced a directory-based system at
 # `.windsurf/rules/` where rules are defined as named markdown files with
 # activation modes (always on, manual, glob, model decision). Verify the
 # current recommendation in the official documentation at https://docs.windsurf.com/

@@ -3,8 +3,8 @@
 > **Research note:** The official Windsurf rules filename was verified against
 > community documentation and the [Codeium blog](https://codeium.com/blog).
 > `.windsurfrules` is the established convention for the repository root and
-> continues to be supported by the Codeium AI engine (Cascade). Starting with
-> Wave 8, Windsurf also introduced a directory-based system at `.windsurf/rules/`
+> continues to be supported by the Codeium AI engine (Cascade). Newer Windsurf
+> versions also introduced a directory-based system at `.windsurf/rules/`
 > where rules are defined as named markdown files with activation modes (always
 > on, manual, glob, model decision). Verify the current recommendation in the
 > [official Windsurf documentation](https://docs.windsurf.com/) before deploying,
@@ -80,7 +80,7 @@ your repository. Rules defined here are applied globally to:
 - Cascade chat interactions
 - Autonomous agent tasks (file edits, refactors, multi-step workflows)
 
-For more granular control, Wave 8+ supports the `.windsurf/rules/` directory system,
+For more granular control, newer Windsurf versions support the `.windsurf/rules/` directory system,
 where individual rule files can be scoped by activation mode (always on, manual, glob
 pattern, or model decision). This allows you to define rules that apply only to specific
 file types, directories, or task contexts.

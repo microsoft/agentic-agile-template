@@ -48,7 +48,7 @@ platform-adapters/
 ├── issue-trackers/        # Workflow templates per issue tracker
 │   └── github/            # GitHub Issues adapter (more trackers planned)
 ├── ci-cd/                 # CI/CD pipeline templates (placeholder — full layer planned for v2)
-└── combos/                # Tested stack combinations (e.g., copilot + github + github-actions)
+└── combos/                # Tested stack combinations (e.g., github-copilot + github + github-actions)
 ```
 
 During onboarding, [`AGENTS.md`](AGENTS.md) asks which adapters your project needs and activates only those layers. This keeps agent context lean and targeted rather than flooding the agent with instructions for tools you don't use.

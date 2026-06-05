@@ -24,7 +24,7 @@ The original live issues will be closed with comments pointing back to this dire
 | [`05-taskflow-task-management-with-status-transitions.md`](05-taskflow-task-management-with-status-transitions.md) | [#5](https://github.com/microsoft/agentic-agile-template/issues/5) | [SAMPLE 1] Epic: TaskFlow — Task management with status transitions |
 | [`06-task-data-model-and-typescript-types.md`](06-task-data-model-and-typescript-types.md) | [#6](https://github.com/microsoft/agentic-agile-template/issues/6) | [SAMPLE 1] Task data model and TypeScript types |
 | [`07-task-repository-layer-with-unit-tests.md`](07-task-repository-layer-with-unit-tests.md) | [#7](https://github.com/microsoft/agentic-agile-template/issues/7) | [SAMPLE 1] Task repository layer with unit tests |
-| [`08-task-business-logic-status-transitions-and-validat.md`](08-task-business-logic-status-transitions-and-validat.md) | [#8](https://github.com/microsoft/agentic-agile-template/issues/8) | [SAMPLE 1] Task business logic — status transitions and validation |
+| [`08-task-business-logic-status-transitions-and-validation.md`](08-task-business-logic-status-transitions-and-validation.md) | [#8](https://github.com/microsoft/agentic-agile-template/issues/8) | [SAMPLE 1] Task business logic — status transitions and validation |
 | [`09-task-api-endpoints-with-input-validation.md`](09-task-api-endpoints-with-input-validation.md) | [#9](https://github.com/microsoft/agentic-agile-template/issues/9) | [SAMPLE 1] Task API endpoints with input validation |
 
 ### SAMPLE 2 — Onboarding walkthrough
