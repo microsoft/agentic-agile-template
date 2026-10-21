@@ -255,11 +255,38 @@ class AnalysisTests(unittest.TestCase):
         first = self.fixture.root / "state.json"
         second = self.fixture.root / "STATE.json"
         self.assertTrue(_paths_alias(first, second))
-        self.assertEqual(
-            os.path.normcase(str(checkpoint_lock_path(first))),
-            os.path.normcase(str(checkpoint_lock_path(second))),
+        self.assertTrue(
+            _paths_alias(checkpoint_lock_path(first), checkpoint_lock_path(second))
         )
         self.assertFalse(_paths_alias(first, self.fixture.root / "other.json"))
+
+    def test_case_only_lock_paths_alias_with_posix_normalization(self) -> None:
+        from forensic_ingest_lib import _paths_alias, checkpoint_lock_path
+
+        with mock.patch(
+            "forensic_ingest_lib.os.path.normcase",
+            side_effect=lambda path: path,
+        ):
+            for first_name, second_name in (
+                ("state.json", "STATE.json"),
+                ("Mixed-State.json", "mIXED-sTATE.json"),
+                ("nested/state.json", "NESTED/STATE.json"),
+            ):
+                with self.subTest(first=first_name, second=second_name):
+                    first = self.fixture.root / first_name
+                    second = self.fixture.root / second_name
+                    other = self.fixture.root / "other.json"
+                    first_lock = checkpoint_lock_path(first)
+                    second_lock = checkpoint_lock_path(second)
+                    self.assertFalse(first.exists())
+                    self.assertFalse(second.exists())
+                    self.assertNotEqual(str(first_lock), str(second_lock))
+                    self.assertTrue(_paths_alias(first, second))
+                    self.assertTrue(_paths_alias(first_lock, second_lock))
+                    self.assertFalse(_paths_alias(first, other))
+                    self.assertFalse(
+                        _paths_alias(first_lock, checkpoint_lock_path(other))
+                    )
 
     def test_repository_local_attributes_are_rejected(self) -> None:
         self.fixture.commit("baseline", {"README.md": "base\n"})
