@@ -809,6 +809,78 @@ class AnalysisTests(unittest.TestCase):
             myers["manifest_sha256"],
         )
 
+    def test_patch_evidence_ignores_local_color_and_rename_configuration(self) -> None:
+        first = "first\n" + "original first content\n" * 12
+        second = "second\n" + "original second content\n" * 12
+        baseline = self.fixture.commit(
+            "baseline", {"old-first.txt": first, "old-second.txt": second}
+        )
+        self.fixture.git("branch", "fork", baseline)
+        self.fixture.git("switch", "-c", "source")
+        self.fixture.git("mv", "old-first.txt", "new-first.txt")
+        self.fixture.git("mv", "old-second.txt", "new-second.txt")
+        changed = self.fixture.commit(
+            "rename and edit",
+            {
+                "new-first.txt": first + "changed\n",
+                "new-second.txt": second + "changed\n",
+            },
+        )
+        self.fixture.git("switch", "fork")
+        self.fixture.git("cherry-pick", "--no-commit", changed)
+        incorporated = self.fixture.commit("independent fork rename", {})
+        config = self.fixture.config(baseline)
+        refs_before = self.fixture.git("show-ref")
+        variants = (
+            ("never", "never", "true", "0"),
+            ("always", "always", "true", "0"),
+            ("always", "never", "false", "0"),
+            ("never", "always", "copies", "1"),
+            ("never", "never", "true", "1"),
+        )
+        expected = None
+        for index, values in enumerate(variants):
+            with self.subTest(settings=values):
+                for key, value in zip(
+                    ("color.ui", "color.diff", "diff.renames", "diff.renameLimit"),
+                    values,
+                ):
+                    self.fixture.git("config", key, value)
+                repository = GitRepository(self.fixture.repo)
+                patch_id = repository.stable_patch_id(changed, [baseline])
+                if patch_id is None:
+                    self.fail("Nonempty rename commit must have a stable patch ID")
+                self.assertRegex(patch_id, r"^[0-9a-f]{40}$")
+                reachable = repository.reachable_patch_id_shas(incorporated)
+                self.assertIn(patch_id, reachable)
+                self.assertIn(incorporated, reachable[patch_id])
+                files = repository.changed_files(changed, [baseline])
+                self.assertEqual(
+                    [
+                        ("new-first.txt", "old-first.txt"),
+                        ("new-second.txt", "old-second.txt"),
+                    ],
+                    [(item["path"], item["old_path"]) for item in files],
+                )
+                self.assertTrue(all(item["status"].startswith("R") for item in files))
+                manifest = analyze_repository(
+                    config,
+                    self.fixture.state(),
+                    self.fixture.root / f"color-rename-{index}.json",
+                )
+                record = next(
+                    item for item in manifest["commits"] if item["sha"] == changed
+                )
+                self.assertEqual(
+                    "incorporated_patch_equivalent", record["integration"]["status"]
+                )
+                evidence = (patch_id, reachable, manifest)
+                if expected is None:
+                    expected = evidence
+                self.assertEqual(expected, evidence)
+                self.assertEqual(refs_before, self.fixture.git("show-ref"))
+                self.assertEqual("", self.fixture.git("status", "--porcelain=v1"))
+
     def test_patch_evidence_ignores_local_diff_prefix_configuration(self) -> None:
         baseline = self.fixture.commit(
             "baseline",
