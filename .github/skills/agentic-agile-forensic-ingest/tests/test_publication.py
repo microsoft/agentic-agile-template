@@ -21,6 +21,7 @@ from forensic_ingest_lib import (  # noqa: E402
     render_drafts,
     sha256_value,
     validate_drafts,
+    validate_manifest,
 )
 from test_support import GitFixture  # noqa: E402
 
@@ -1354,6 +1355,59 @@ class PublicationTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ForensicIngestError, "safe size"):
             validate_drafts(manifest, drafts)
+
+
+class GitPolicyPublicationTests(unittest.TestCase):
+    def test_interrupted_publication_resumes_across_diff_configuration_changes(self) -> None:
+        fixture = GitFixture()
+        self.addCleanup(fixture.close)
+        baseline, changed, _ = fixture.create_submodule_divergence()
+        config = fixture.config(baseline)
+        state = fixture.state()
+        manifest = fixture.root / "manifest.json"
+        drafts = fixture.root / "drafts.json"
+        publication = fixture.root / "publication.json"
+        analyze_repository(config, state, manifest)
+        render_drafts(manifest, drafts)
+        client = FakeGitHub()
+        client.fail_close_once = True
+        with self.assertRaisesRegex(ForensicIngestError, "close interruption"):
+            publish_github(
+                config, manifest, drafts, state, publication, client=client
+            )
+        numbers_before = set(client.issues)
+        for key, value in {
+            "color.diff": "always",
+            "diff.renames": "copies",
+            "diff.renameLimit": "1",
+            "diff.submodule": "diff",
+            "diff.ignoreSubmodules": "all",
+            "submodule.module.ignore": "all",
+            "core.quotePath": "false",
+            "diff.relative": "true",
+            "diff.orderFile": "missing-order-file",
+            "log.showRoot": "false",
+            "patchid.verbatim": "true",
+        }.items():
+            fixture.git("config", key, value)
+        self.assertTrue(
+            validate_manifest(config, manifest, drafts, state_path=state)["passed"]
+        )
+        report = publish_github(
+            config, manifest, drafts, state, publication, client=client
+        )
+        self.assertTrue(report["verification"]["passed"])
+        self.assertTrue(numbers_before.issubset(client.issues))
+        self.assertEqual(2, len(client.issues))
+        self.assertEqual(2, client.create_attempts)
+        checkpoint = json.loads(state.read_text(encoding="utf-8"))
+        self.assertEqual(changed, checkpoint["incorporated_baseline_sha"])
+        mutations = client.mutations
+        report = publish_github(
+            config, manifest, drafts, state, publication, client=client
+        )
+        self.assertTrue(report["passed"])
+        self.assertEqual(mutations, client.mutations)
 
 
 if __name__ == "__main__":

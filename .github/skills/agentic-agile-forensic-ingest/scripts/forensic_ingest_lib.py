@@ -573,6 +573,9 @@ class GitRepository:
             )
 
     def _git_command(self, *arguments: str) -> list[str]:
+        if arguments and arguments[0] in {"diff", "diff-tree", "log", "show", "status"}:
+            # Override arbitrary per-module rules, including .gitmodules settings.
+            arguments = (arguments[0], "--ignore-submodules=none", *arguments[1:])
         return [
             "git",
             "-c",
@@ -582,6 +585,10 @@ class GitRepository:
             "-c",
             "core.fsmonitor=false",
             "-c",
+            "core.quotePath=true",
+            "-c",
+            "core.bigFileThreshold=512m",
+            "-c",
             "color.ui=false",
             "-c",
             "color.diff=false",
@@ -589,6 +596,16 @@ class GitRepository:
             "diff.renames=true",
             "-c",
             "diff.renameLimit=0",
+            "-c",
+            "diff.relative=false",
+            "-c",
+            f"diff.orderFile={os.devnull}",
+            "-c",
+            "diff.suppressBlankEmpty=false",
+            "-c",
+            "diff.submodule=short",
+            "-c",
+            "diff.ignoreSubmodules=none",
             "-c",
             "diff.algorithm=myers",
             "-c",
@@ -605,6 +622,8 @@ class GitRepository:
             "diff.context=3",
             "-c",
             "diff.interHunkContext=0",
+            "-c",
+            "log.showRoot=true",
             "-c",
             "log.showSignature=false",
             "--no-pager",
@@ -786,17 +805,25 @@ class GitRepository:
         source_tip: str,
         fork_tip: str,
     ) -> set[str]:
-        equivalent: set[str] = set()
-        for line in self.run("cherry", source_tip, fork_tip).splitlines():
-            match = re.fullmatch(r"([+-]) ([0-9a-f]{40})", line)
-            if not match:
-                raise ForensicIngestError("Git returned malformed cherry evidence")
-            if match.group(1) == "-":
-                equivalent.add(match.group(2))
-        return equivalent
+        source_patch_ids = set(
+            self.reachable_patch_id_shas(source_tip, exclude_tip=fork_tip)
+        )
+        if not source_patch_ids:
+            return set()
+        fork_patch_ids = self.reachable_patch_id_shas(
+            fork_tip, exclude_tip=source_tip
+        )
+        return {
+            sha
+            for patch_id in source_patch_ids.intersection(fork_patch_ids)
+            for sha in fork_patch_ids[patch_id]
+        }
 
-    def reachable_patch_id_shas(self, tip: str) -> dict[str, list[str]]:
+    def reachable_patch_id_shas(
+        self, tip: str, *, exclude_tip: Optional[str] = None
+    ) -> dict[str, list[str]]:
         self._assert_no_local_attributes()
+        exclusions = (f"^{exclude_tip}",) if exclude_tip is not None else ()
         by_patch_id: dict[str, list[str]] = {}
         log_process: Optional[subprocess.Popen[bytes]] = None
         patch_process: Optional[subprocess.Popen[bytes]] = None
@@ -817,6 +844,7 @@ class GitRepository:
                                 "--no-ext-diff",
                                 "--no-textconv",
                                 tip,
+                                *exclusions,
                                 "--",
                             ),
                             cwd=self.path,

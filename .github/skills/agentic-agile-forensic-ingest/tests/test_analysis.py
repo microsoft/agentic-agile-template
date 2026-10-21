@@ -881,6 +881,181 @@ class AnalysisTests(unittest.TestCase):
                 self.assertEqual(refs_before, self.fixture.git("show-ref"))
                 self.assertEqual("", self.fixture.git("status", "--porcelain=v1"))
 
+    def test_diff_policy_preserves_root_and_nested_directory_evidence(self) -> None:
+        path = "src/\u00e9.txt"
+        baseline = self.fixture.commit(
+            "baseline",
+            {
+                "nested/keep.txt": "keep\n",
+                path: "first\n\nmiddle\n\nend\n",
+                "src/two.txt": "one\ntwo\nthree\nfour\n",
+            },
+        )
+        self.fixture.git("branch", "fork", baseline)
+        self.fixture.git("switch", "-c", "source")
+        changed = self.fixture.commit(
+            "source change",
+            {path: "first\n\nchanged\n\nend\n", "src/two.txt": "changed\n"},
+        )
+        self.fixture.git("switch", "fork")
+        self.fixture.git("cherry-pick", "--no-commit", changed)
+        incorporated = self.fixture.commit("independent fork change", {})
+        config_path = self.fixture.config(baseline)
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        config["repository_path"] = str(self.fixture.repo / "nested")
+        config_path.write_text(json.dumps(config), encoding="utf-8")
+        repository = GitRepository(self.fixture.repo / "nested")
+
+        def evidence() -> dict[str, object]:
+            return {
+                "patch_id": repository.stable_patch_id(changed, [baseline]),
+                "root_id": repository.stable_patch_id(baseline, []),
+                "reachable": repository.reachable_patch_id_shas(incorporated),
+                "files": repository.changed_files(changed, [baseline]),
+                "source_equivalent": repository.source_patch_equivalent_fork_shas(
+                    changed, incorporated
+                ),
+            }
+
+        canonical = {
+            "core.quotePath": "true",
+            "core.bigFileThreshold": "512m",
+            "diff.relative": "false",
+            "diff.orderFile": os.devnull,
+            "diff.suppressBlankEmpty": "false",
+            "log.showRoot": "true",
+            "patchid.verbatim": "false",
+            "patchid.stable": "true",
+        }
+        for key, value in canonical.items():
+            self.fixture.git("config", key, value)
+        expected = evidence()
+        self.assertIsNotNone(expected["patch_id"])
+        self.assertIsNotNone(expected["root_id"])
+        self.assertEqual({incorporated}, expected["source_equivalent"])
+        self.assertEqual(
+            ["src/two.txt", path],
+            [item["path"] for item in repository.changed_files(changed, [baseline])],
+        )
+        manifest_path = self.fixture.root / "canonical.json"
+        manifest = analyze_repository(
+            config_path, self.fixture.state(), manifest_path
+        )
+        ordering = self.fixture.root / "order.txt"
+        ordering.write_text(f"{path}\nsrc/two.txt\n", encoding="utf-8")
+        variants = (
+            {"core.quotePath": "false"},
+            {"core.bigFileThreshold": "1"},
+            {"diff.relative": "true"},
+            {"log.showRoot": "false"},
+            {"diff.orderFile": str(ordering)},
+            {"diff.orderFile": "missing-order-file"},
+            {"diff.suppressBlankEmpty": "true"},
+            {"patchid.verbatim": "true", "patchid.stable": "false"},
+        )
+        combined = {key: value for variant in variants for key, value in variant.items()}
+        for settings in (*variants, combined):
+            with self.subTest(settings=settings):
+                for key, value in {**canonical, **settings}.items():
+                    self.fixture.git("config", key, value)
+                self.assertEqual(expected, evidence())
+        self.assertTrue(
+            validate_manifest(
+                config_path, manifest_path, state_path=self.fixture.state()
+            )["passed"]
+        )
+        self.assertEqual(
+            manifest,
+            analyze_repository(
+                config_path, self.fixture.state(), self.fixture.root / "hostile.json"
+            ),
+        )
+
+    def test_submodule_evidence_ignores_local_diff_configuration(self) -> None:
+        baseline, changed, fork_tip = self.fixture.create_submodule_divergence(
+            same_patch=False
+        )
+        self.fixture.git(
+            "config", "-f", ".gitmodules", "submodule.module.ignore", "all"
+        )
+        self.fixture.git("config", "submodule.module.ignore", "none")
+        repository = GitRepository(self.fixture.repo)
+        config = self.fixture.config(baseline)
+
+        def evidence() -> dict[str, object]:
+            return {
+                "patch_id": repository.stable_patch_id(changed, [baseline]),
+                "reachable": repository.reachable_patch_id_shas(fork_tip),
+                "files": repository.changed_files(changed, [baseline]),
+                "source_equivalent": repository.source_patch_equivalent_fork_shas(
+                    changed, fork_tip
+                ),
+            }
+
+        expected = evidence()
+        self.assertIsNotNone(expected["patch_id"])
+        self.assertEqual(set(), expected["source_equivalent"])
+        self.assertEqual(
+            ["module"],
+            [item["path"] for item in repository.changed_files(changed, [baseline])],
+        )
+        manifest_path = self.fixture.root / "submodule.json"
+        manifest = analyze_repository(config, self.fixture.state(), manifest_path)
+        record = next(item for item in manifest["commits"] if item["sha"] == changed)
+        self.assertEqual("unsynced", record["integration"]["status"])
+        variants = (
+            ("log", "none", "none"),
+            ("diff", "none", "none"),
+            ("short", "all", "all"),
+            ("log", "dirty", "all"),
+            ("diff", "untracked", None),
+        )
+        for output, global_ignore, local_ignore in variants:
+            with self.subTest(settings=(output, global_ignore, local_ignore)):
+                self.fixture.git("config", "diff.submodule", output)
+                self.fixture.git("config", "diff.ignoreSubmodules", global_ignore)
+                if local_ignore is None:
+                    self.fixture.git("config", "--unset-all", "submodule.module.ignore")
+                else:
+                    self.fixture.git(
+                        "config", "submodule.module.ignore", local_ignore
+                    )
+                self.assertEqual(expected, evidence())
+        self.assertTrue(
+            validate_manifest(
+                config, manifest_path, state_path=self.fixture.state()
+            )["passed"]
+        )
+        self.assertEqual(
+            manifest,
+            analyze_repository(
+                config, self.fixture.state(), self.fixture.root / "hostile-module.json"
+            ),
+        )
+
+    def test_guard_detects_changes_in_ignored_submodules(self) -> None:
+        self.fixture.create_submodule_divergence()
+        self.fixture.git("config", "submodule.module.ignore", "all")
+        repository = GitRepository(self.fixture.repo)
+        before = repository.guard()
+        self.fixture.write("module/README.md", "concurrent worktree change\n")
+        self.assertNotEqual(before, repository.guard())
+
+    def test_source_equivalence_compares_only_divergent_history(self) -> None:
+        baseline = self.fixture.commit("baseline", {"README.md": "base\n"})
+        self.fixture.git("branch", "source", baseline)
+        self.fixture.git("switch", "-c", "fork")
+        self.fixture.git("rm", "README.md")
+        self.fixture.commit("remove original", {})
+        self.fixture.commit("restore original", {"README.md": "base\n"})
+        repository = GitRepository(self.fixture.repo)
+        self.assertEqual(
+            set(),
+            repository.source_patch_equivalent_fork_shas(
+                baseline, self.fixture.git("rev-parse", "fork")
+            ),
+        )
+
     def test_patch_evidence_ignores_local_diff_prefix_configuration(self) -> None:
         baseline = self.fixture.commit(
             "baseline",

@@ -19,6 +19,14 @@ Rename detection always uses a 50 percent similarity threshold with an
 explicit unlimited candidate count, so user or repository `diff.renameLimit`
 configuration cannot change recorded path evidence.
 
+The shared Git wrapper also pins color off, quoted path spelling, root-commit
+patches, repository-root-relative paths, empty file-ordering rules, blank-context
+formatting and the default 512 MiB binary threshold. Submodule patches use short
+gitlink output. Diff and status commands explicitly include submodules,
+overriding arbitrary per-module ignore rules from local config or `.gitmodules`.
+The skill records gitlink changes, not recursive reconstruction of submodule
+history. Mutation guards also inspect populated submodule worktree state.
+
 All Git extraction and validation commands pin the Myers diff algorithm,
 disable the indent heuristic, pin default `a/` and `b/` diff prefixes, ignore
 committed/global/system attributes, disable fsmonitor, signature display,
@@ -63,8 +71,13 @@ selected non-merge source commit and a non-merge commit reachable anywhere in
 the configured fork. It does not prove identical metadata, intent, review, or
 surrounding history.
 
-Contribution recommendations use `git cherry` evidence to exclude fork-only
-commits whose stable patch is already present in the source history.
+Contribution recommendations compare the source-only and fork-only histories
+using the same canonical streamed patch-ID pipeline. This preserves the
+divergent-history comparison rather than reclassifying shared ancestors.
+It avoids `git cherry`'s separate internal diff policy, which can falsely equate
+distinct submodule updates when per-module ignore rules hide their differences.
+Only a reproduced nonempty patch identity proves equivalence; empty patches and
+merge commits do not acquire invented patch-equivalence evidence.
 
 ## Mutation guard
 

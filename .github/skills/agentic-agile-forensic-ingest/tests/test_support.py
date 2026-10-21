@@ -101,3 +101,31 @@ class GitFixture:
         first = self.commit("source one", {"src/one.py": "one = 1\n"})
         second = self.commit("source two", {"src/two.py": "two = 2\n"})
         return baseline, first, second
+
+    def create_submodule_divergence(
+        self, *, same_patch: bool = True
+    ) -> tuple[str, str, str]:
+        """Create gitlink updates with a populated, entirely local submodule."""
+        first = self.commit("first anchor", {"README.md": "first\n"})
+        second = self.commit("second anchor", {"README.md": "second\n"})
+        third = self.commit("third anchor", {"README.md": "third\n"})
+        self.git("clone", "--no-hardlinks", str(self.repo), "module")
+        self.git("-C", "module", "checkout", "--detach", first)
+        self.write(
+            ".gitmodules",
+            '[submodule "module"]\n'
+            "\tpath = module\n"
+            "\turl = https://example.invalid/module\n",
+        )
+        baseline = self.commit("baseline gitlink", {})
+        self.git("branch", "fork", baseline)
+        self.git("switch", "-c", "source")
+        self.git("-C", "module", "checkout", "--detach", second)
+        changed = self.commit("source module update", {})
+        self.git("switch", "fork")
+        self.git(
+            "-C", "module", "checkout", "--detach",
+            second if same_patch else third,
+        )
+        incorporated = self.commit("independent fork module update", {})
+        return baseline, changed, incorporated
