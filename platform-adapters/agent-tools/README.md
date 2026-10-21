@@ -56,3 +56,7 @@ Agent-tools adapters are one of three layers in the platform-adapters system:
 - **ci-cd** — wires up pipeline checks → see [../ci-cd/](../ci-cd/)
 
 For a pre-assembled combination of all three layers, see [../combos/](../combos/).
+
+## Review Cycle
+
+Each adapter's target file carries a short review-cycle section; the canonical tool-neutral pattern is [docs/agentic-review-cycle.md](../../docs/agentic-review-cycle.md).

@@ -113,3 +113,7 @@ your-repo/
 └── .github/
     └── copilot-instructions.md        # Copilot adapter (abbreviated subset)
 ```
+
+## Review Cycle
+
+The template includes a `Review cycle` section (class fixes, holistic plan, batched exact-head review, stop condition, hygiene). Full pattern: [docs/agentic-review-cycle.md](../../../docs/agentic-review-cycle.md).

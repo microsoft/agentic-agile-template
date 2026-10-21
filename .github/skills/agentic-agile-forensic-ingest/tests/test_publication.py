@@ -1,0 +1,1360 @@
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import threading
+import unittest
+from unittest import mock
+
+SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
+sys.path.insert(0, str(SCRIPTS))
+
+from forensic_ingest_lib import (  # noqa: E402
+    ForensicIngestError,
+    GitHubClient,
+    analyze_repository,
+    checkpoint_lock_path,
+    publish_github as _publish_github,
+    render_drafts,
+    sha256_value,
+    validate_drafts,
+)
+from test_support import GitFixture  # noqa: E402
+
+
+def publish_github(*arguments, **options):
+    options.setdefault("execute", True)
+    return _publish_github(*arguments, **options)
+
+
+class FakeGitHub:
+    def __init__(self) -> None:
+        self.hostname = "github.com"
+        self.repository = "example/fork"
+        self.issues: dict[int, dict] = {}
+        self.labels: set[str] = set()
+        self.children: dict[int, list[int]] = {}
+        self.mutations = 0
+        self.fail_issue_create_number: int | None = None
+        self.fail_close_once = False
+        self.create_attempts = 0
+        self.hidden_issue_reads_after_create = 0
+        self.issue_reads = 0
+        self.duplicate_marker_on_issue_read: int | None = None
+        self.issue_read_hook = None
+        self.sleeps: list[float] = []
+        self.sleep = self.sleeps.append
+
+    def list_all(self, resource: str) -> list[dict]:
+        if resource.startswith("issues?"):
+            self.issue_reads += 1
+            if self.issue_read_hook is not None:
+                self.issue_read_hook(self.issue_reads)
+            if (
+                self.duplicate_marker_on_issue_read == self.issue_reads
+                and self.issues
+            ):
+                number = max(self.issues) + 1
+                duplicate = dict(next(iter(self.issues.values())))
+                duplicate["number"] = number
+                duplicate["id"] = number * 100
+                duplicate["html_url"] = (
+                    f"https://example.invalid/issues/{number}"
+                )
+                self.issues[number] = duplicate
+            if self.issues and self.hidden_issue_reads_after_create:
+                self.hidden_issue_reads_after_create -= 1
+                return []
+            return list(self.issues.values())
+        if resource == "labels":
+            return [{"name": label} for label in sorted(self.labels)]
+        if resource.endswith("/sub_issues"):
+            parent = int(resource.split("/")[1])
+            return [self.issues[number] for number in self.children.get(parent, [])]
+        raise AssertionError(resource)
+
+    def api(self, endpoint: str, payload=None, method=None):
+        if endpoint.endswith("/labels"):
+            self.mutations += 1
+            self.labels.add(payload["name"])
+            return {"name": payload["name"]}
+        if endpoint.endswith("/issues"):
+            self.create_attempts += 1
+            if self.fail_issue_create_number == self.create_attempts:
+                raise ForensicIngestError("simulated partial publication")
+            self.mutations += 1
+            number = len(self.issues) + 1
+            issue = {
+                **payload,
+                "number": number,
+                "id": number * 100,
+                "html_url": f"https://example.invalid/issues/{number}",
+                "state": "open",
+                "state_reason": None,
+                "labels": [{"name": label} for label in payload["labels"]],
+            }
+            self.issues[number] = issue
+            return issue
+        if endpoint.endswith("/sub_issues"):
+            self.mutations += 1
+            parent = int(endpoint.split("/")[-2])
+            child = next(
+                number
+                for number, issue in self.issues.items()
+                if issue["id"] == payload["sub_issue_id"]
+            )
+            self.children.setdefault(parent, []).append(child)
+            return self.issues[child]
+        if payload and payload.get("state") == "closed" and self.fail_close_once:
+            self.fail_close_once = False
+            raise ForensicIngestError("simulated close interruption")
+        self.mutations += 1
+        number = int(endpoint.split("/")[-1])
+        issue = self.issues[number]
+        issue.update(payload)
+        return issue
+
+
+class PublicationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.fixture = GitFixture()
+        baseline = self.fixture.commit("baseline", {"README.md": "base\n"})
+        self.fixture.git("switch", "-c", "source")
+        self.fixture.commit("source one", {"src/one.py": "one = 1\n"})
+        self.fixture.git("switch", "-c", "fork", baseline)
+        self.fixture.commit("equivalent one", {"src/one.py": "one = 1\n"})
+        self.config = self.fixture.config(baseline)
+        self.state = self.fixture.state()
+        self.manifest = self.fixture.root / "manifest.json"
+        self.drafts = self.fixture.root / "drafts.json"
+        self.publication = self.fixture.root / "publication.json"
+        analyze_repository(self.config, self.state, self.manifest)
+        render_drafts(self.manifest, self.drafts)
+
+    def tearDown(self) -> None:
+        self.fixture.close()
+
+    def test_partial_publication_resumes_and_rerun_is_idempotent(self) -> None:
+        client = FakeGitHub()
+        client.fail_issue_create_number = 2
+        with self.assertRaisesRegex(ForensicIngestError, "partial publication"):
+            publish_github(
+                self.config,
+                self.manifest,
+                self.drafts,
+                self.state,
+                self.publication,
+                client=client,
+            )
+        saved = json.loads(self.publication.read_text(encoding="utf-8"))
+        self.assertEqual(1, len(saved["issues"]))
+        self.assertEqual(1, len(saved["creation_intents"]))
+
+        checkpoint_before = self.publication.read_bytes()
+        reads_before = client.issue_reads
+        mutations_before = client.mutations
+        report = publish_github(
+            self.config, self.manifest, self.drafts, self.state,
+            self.publication, client=client, execute=False,
+        )
+        self.assertEqual("dry-run", report["mode"])
+        self.assertEqual(checkpoint_before, self.publication.read_bytes())
+        self.assertFalse(self.state.exists())
+        self.assertEqual(reads_before, client.issue_reads)
+        self.assertEqual(mutations_before, client.mutations)
+
+        client.fail_issue_create_number = None
+        client.labels.clear()
+        before_failed_resume = client.mutations
+        with self.assertRaisesRegex(
+            ForensicIngestError,
+            "refusing duplicate creation",
+        ):
+            publish_github(
+                self.config,
+                self.manifest,
+                self.drafts,
+                self.state,
+                self.publication,
+                client=client,
+            )
+        self.assertEqual(before_failed_resume, client.mutations)
+        self.assertFalse(client.labels)
+        saved["creation_intents"].clear()
+        self.publication.write_text(json.dumps(saved), encoding="utf-8")
+        report = publish_github(
+            self.config,
+            self.manifest,
+            self.drafts,
+            self.state,
+            self.publication,
+            client=client,
+        )
+        self.assertTrue(report["verification"]["passed"])
+        self.assertEqual({1: [2]}, client.children)
+        state = json.loads(self.state.read_text(encoding="utf-8"))
+        self.assertEqual(
+            json.loads(self.manifest.read_text())["source"]["tip_sha"],
+            state["incorporated_baseline_sha"],
+        )
+
+        before = client.mutations
+        report = publish_github(
+            self.config,
+            self.manifest,
+            self.drafts,
+            self.state,
+            self.publication,
+            client=client,
+        )
+        self.assertTrue(report["passed"])
+        self.assertEqual(before, client.mutations)
+
+    def test_prior_run_open_decision_issue_is_reported_not_mutated(self) -> None:
+        client = FakeGitHub()
+        profile = json.loads(self.config.read_text(encoding="utf-8"))["profile_id"]
+        client.issues[1] = {
+            "number": 1,
+            "id": 100,
+            "html_url": "https://example.invalid/issues/1",
+            "state": "open",
+            "title": "Review upstream delta old",
+            "body": f"<!-- forensic-ingest-id:{profile}:old-run:decision -->",
+            "labels": [],
+        }
+        report = publish_github(
+            self.config,
+            self.manifest,
+            self.drafts,
+            self.state,
+            self.publication,
+            client=client,
+        )
+        self.assertEqual([1], report["open_decision_issues_from_other_runs"])
+        self.assertEqual("open", client.issues[1]["state"])
+
+    def test_creation_intent_resumes_after_create_before_checkpoint(self) -> None:
+        client = FakeGitHub()
+        client.hidden_issue_reads_after_create = 2
+        original_atomic_write = sys.modules[
+            "forensic_ingest_lib"
+        ].atomic_write_json
+        interrupted = False
+
+        def interrupt_after_create(path: Path, value: dict) -> None:
+            nonlocal interrupted
+            if (
+                path == self.publication
+                and value.get("issues")
+                and not value.get("creation_intents")
+                and not interrupted
+            ):
+                interrupted = True
+                raise ForensicIngestError("simulated post-create crash")
+            original_atomic_write(path, value)
+
+        with mock.patch(
+            "forensic_ingest_lib.atomic_write_json",
+            side_effect=interrupt_after_create,
+        ):
+            with self.assertRaisesRegex(
+                ForensicIngestError,
+                "simulated post-create crash",
+            ):
+                publish_github(
+                    self.config,
+                    self.manifest,
+                    self.drafts,
+                    self.state,
+                    self.publication,
+                    client=client,
+                )
+
+        saved = json.loads(self.publication.read_text(encoding="utf-8"))
+        self.assertFalse(saved["issues"])
+        self.assertEqual(1, len(saved["creation_intents"]))
+        self.assertEqual(1, len(client.issues))
+        self.assertEqual("open", client.issues[1]["state"])
+
+        report = publish_github(
+            self.config,
+            self.manifest,
+            self.drafts,
+            self.state,
+            self.publication,
+            client=client,
+        )
+
+        self.assertTrue(report["passed"])
+        self.assertEqual([1], client.sleeps)
+        self.assertTrue(
+            all(issue["state"] == "closed" for issue in client.issues.values())
+        )
+        saved = json.loads(self.publication.read_text(encoding="utf-8"))
+        self.assertFalse(saved["creation_intents"])
+        self.assertTrue(
+            all(
+                entry["publisher_created"]
+                for entry in saved["issues"].values()
+            )
+        )
+
+    def test_publication_uses_exact_validated_input_snapshots(self) -> None:
+        client = FakeGitHub()
+        original_config = json.loads(self.config.read_text(encoding="utf-8"))
+        original_drafts = json.loads(self.drafts.read_text(encoding="utf-8"))
+        original_validate = sys.modules[
+            "forensic_ingest_lib"
+        ]._validate_manifest_snapshots
+
+        def mutate_files_after_validation(*args, **kwargs):
+            report = original_validate(*args, **kwargs)
+            changed_config = dict(original_config)
+            changed_config["github"] = {
+                "repository": "attacker/other",
+                "labels": ["changed"],
+            }
+            self.config.write_text(json.dumps(changed_config), encoding="utf-8")
+            changed_drafts = dict(original_drafts)
+            changed_drafts["issues"] = [
+                {
+                    **issue,
+                    "title": f"changed {issue['title']}",
+                }
+                for issue in original_drafts["issues"]
+            ]
+            self.drafts.write_text(json.dumps(changed_drafts), encoding="utf-8")
+            return report
+
+        with mock.patch(
+            "forensic_ingest_lib._validate_manifest_snapshots",
+            side_effect=mutate_files_after_validation,
+        ):
+            report = publish_github(
+                self.config,
+                self.manifest,
+                self.drafts,
+                self.state,
+                self.publication,
+                client=client,
+            )
+
+        self.assertEqual("example/fork", report["target_repository"])
+        self.assertEqual(
+            [issue["title"] for issue in original_drafts["issues"]],
+            [client.issues[number]["title"] for number in sorted(client.issues)],
+        )
+
+    def test_github_label_matching_is_case_insensitive(self) -> None:
+        client = FakeGitHub()
+        client.labels.add("Fixture")
+        report = publish_github(
+            self.config,
+            self.manifest,
+            self.drafts,
+            self.state,
+            self.publication,
+            client=client,
+        )
+
+        self.assertTrue(report["passed"])
+        self.assertIn("Fixture", client.labels)
+        self.assertNotIn("fixture", client.labels)
+        self.assertEqual(
+            1,
+            sum(label.casefold() == "fixture" for label in client.labels),
+        )
+        for issue in client.issues.values():
+            issue["labels"] = [
+                {"name": label["name"].upper()}
+                for label in issue["labels"]
+            ]
+        before = client.mutations
+        rerun = publish_github(
+            self.config,
+            self.manifest,
+            self.drafts,
+            self.state,
+            self.publication,
+            client=client,
+        )
+        self.assertTrue(rerun["passed"])
+        self.assertEqual(before, client.mutations)
+
+    def test_repository_change_during_validation_blocks_remote_access(self) -> None:
+        client = FakeGitHub()
+        source_tip = self.fixture.git("rev-parse", "source")
+        repository_type = sys.modules["forensic_ingest_lib"].GitRepository
+        original_guard = repository_type.guard
+        guard_calls = 0
+
+        def move_fork_before_final_guard(repository):
+            nonlocal guard_calls
+            guard_calls += 1
+            if guard_calls == 2:
+                self.fixture.git(
+                    "update-ref",
+                    "refs/heads/fork",
+                    source_tip,
+                )
+            return original_guard(repository)
+
+        with mock.patch.object(
+            repository_type,
+            "guard",
+            side_effect=move_fork_before_final_guard,
+            autospec=True,
+        ):
+            with self.assertRaisesRegex(
+                ForensicIngestError,
+                "changed during manifest validation",
+            ):
+                publish_github(
+                    self.config,
+                    self.manifest,
+                    self.drafts,
+                    self.state,
+                    self.publication,
+                    client=client,
+                )
+
+        self.assertEqual(0, client.issue_reads)
+        self.assertEqual(0, client.mutations)
+
+    def test_duplicate_remote_marker_is_rejected_before_mutation(self) -> None:
+        client = FakeGitHub()
+        logical_id = json.loads(self.drafts.read_text())["issues"][0]["logical_id"]
+        for number in (1, 2):
+            body = f"<!-- forensic-ingest-id:{logical_id} -->"
+            if number == 2:
+                body = (
+                    "<!-- forensic-ingest-id:unrelated -->\n"
+                    f"{body}"
+                )
+            client.issues[number] = {
+                "number": number,
+                "id": number * 100,
+                "title": "duplicate",
+                "body": body,
+                "state": "open",
+                "state_reason": None,
+                "labels": [],
+            }
+        with self.assertRaisesRegex(ForensicIngestError, "Duplicate remote marker"):
+            publish_github(
+                self.config,
+                self.manifest,
+                self.drafts,
+                self.state,
+                self.publication,
+                client=client,
+            )
+        self.assertEqual(0, client.mutations)
+
+    def test_duplicate_created_concurrently_blocks_checkpoint_update(self) -> None:
+        client = FakeGitHub()
+        client.duplicate_marker_on_issue_read = 2
+        with self.assertRaisesRegex(
+            ForensicIngestError,
+            "Duplicate remote marker",
+        ):
+            publish_github(
+                self.config,
+                self.manifest,
+                self.drafts,
+                self.state,
+                self.publication,
+                client=client,
+            )
+        self.assertFalse(self.state.exists())
+
+    def test_marker_only_open_historical_issue_is_not_closed(self) -> None:
+        client = FakeGitHub()
+        drafts = json.loads(self.drafts.read_text(encoding="utf-8"))
+        parent = next(
+            issue for issue in drafts["issues"] if not issue.get("parent_id")
+        )
+        client.issues[1] = {
+            "number": 1,
+            "id": 100,
+            "title": parent["title"],
+            "body": parent["body"],
+            "state": "open",
+            "state_reason": None,
+            "labels": [
+                {"name": label}
+                for label in sorted(set(parent["labels"] + ["fixture"]))
+            ],
+        }
+
+        with self.assertRaisesRegex(
+            ForensicIngestError,
+            "state drift",
+        ):
+            publish_github(
+                self.config,
+                self.manifest,
+                self.drafts,
+                self.state,
+                self.publication,
+                client=client,
+            )
+
+        self.assertEqual(0, client.mutations)
+        self.assertEqual("open", client.issues[1]["state"])
+        saved = json.loads(self.publication.read_text(encoding="utf-8"))
+        self.assertFalse(saved["issues"][parent["logical_id"]]["publisher_created"])
+
+    def test_missing_recorded_sub_issue_link_fails_preflight(self) -> None:
+        client = FakeGitHub()
+        publish_github(
+            self.config, self.manifest, self.drafts, self.state,
+            self.publication, client=client,
+        )
+        client.children.clear()
+        before = client.mutations
+        with self.assertRaisesRegex(
+            ForensicIngestError, "Recorded sub-issue link is missing"
+        ):
+            publish_github(
+                self.config, self.manifest, self.drafts, self.state,
+                self.publication, client=client,
+            )
+        self.assertEqual(before, client.mutations)
+
+    def test_malformed_publication_state_is_rejected_before_remote_access(
+        self,
+    ) -> None:
+        drafts = json.loads(self.drafts.read_text(encoding="utf-8"))
+        logical_id = drafts["issues"][0]["logical_id"]
+        base = {
+            "schema_version": 1,
+            "target_hostname": "github.com",
+            "target_repository": "example/fork",
+            "drafts_sha256": drafts["drafts_sha256"],
+            "publication_contract_sha256": sha256_value(
+                {
+                    "target_hostname": "github.com",
+                    "target_repository": "example/fork",
+                    "labels": ["fixture"],
+                }
+            ),
+            "creation_intents": {},
+            "remote_verification": None,
+        }
+        cases = (
+            ("{not json", "Invalid JSON file"),
+            ("[]", "JSON root must be an object"),
+            (
+                {**base, "schema_version": True, "issues": {}},
+                "Unsupported publication-state schema_version",
+            ),
+            (
+                {**base, "target_repository": "example/other", "issues": {}},
+                "another repository",
+            ),
+            (
+                {**base, "target_hostname": "github.example.invalid", "issues": {}},
+                "another GitHub host",
+            ),
+            (
+                {**base, "drafts_sha256": "0" * 64, "issues": {}},
+                "different drafts",
+            ),
+            (
+                {**base, "publication_contract_sha256": "0" * 64, "issues": {}},
+                "different GitHub settings",
+            ),
+            ({**base, "issues": []}, "issues must be an object"),
+            (
+                {**base, "issues": {"unknown": {}}},
+                "unknown issue identifiers",
+            ),
+            (
+                {**base, "issues": {logical_id: []}},
+                "issue entry must be an object",
+            ),
+            (
+                {
+                    **base,
+                    "issues": {
+                        logical_id: {
+                            "number": 1,
+                            "id": 100,
+                            "html_url": None,
+                            "parent_linked": False,
+                            "closed": False,
+                        }
+                    },
+                },
+                "publisher_created is invalid",
+            ),
+            (
+                {
+                    **base,
+                    "issues": {},
+                    "creation_intents": {logical_id: "invalid"},
+                },
+                "creation intent is invalid",
+            ),
+            (
+                {**base, "issues": {}, "creation_intents": []},
+                "creation_intents must be an object",
+            ),
+            (
+                {**base, "issues": {}, "creation_intents": {"unknown": "0" * 64}},
+                "unknown creation intents",
+            ),
+        )
+        for publication, message in cases:
+            for execute in (False, True):
+                with self.subTest(message=message, execute=execute):
+                    self.publication.write_text(
+                        publication if isinstance(publication, str)
+                        else json.dumps(publication),
+                        encoding="utf-8",
+                    )
+                    checkpoint_before = self.publication.read_bytes()
+                    client = FakeGitHub()
+                    with mock.patch(
+                        "forensic_ingest_lib.GitHubClient",
+                        side_effect=AssertionError("local validation must not build a client"),
+                    ), self.assertRaisesRegex(ForensicIngestError, message):
+                        publish_github(
+                            self.config,
+                            self.manifest,
+                            self.drafts,
+                            self.state,
+                            self.publication,
+                            client=client if execute else None,
+                            execute=execute,
+                        )
+                    self.assertEqual(checkpoint_before, self.publication.read_bytes())
+                    self.assertFalse(self.state.exists())
+                    self.assertEqual(0, client.issue_reads)
+                    self.assertEqual(0, client.mutations)
+
+    def test_publication_state_cannot_resume_on_another_hostname(self) -> None:
+        client = FakeGitHub()
+        publish_github(
+            self.config,
+            self.manifest,
+            self.drafts,
+            self.state,
+            self.publication,
+            client=client,
+        )
+        changed = json.loads(self.config.read_text(encoding="utf-8"))
+        changed["github"]["hostname"] = "github.example.invalid"
+        self.config.write_text(json.dumps(changed), encoding="utf-8")
+        other_host = FakeGitHub()
+        other_host.hostname = "github.example.invalid"
+
+        with self.assertRaisesRegex(
+            ForensicIngestError,
+            "another GitHub host",
+        ):
+            publish_github(
+                self.config,
+                self.manifest,
+                self.drafts,
+                self.state,
+                self.publication,
+                client=other_host,
+            )
+
+        self.assertEqual(0, other_host.mutations)
+
+    def test_github_client_pins_hostname_and_ignores_gh_host(self) -> None:
+        response = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="[]",
+            stderr="",
+        )
+        with mock.patch.dict(
+            os.environ,
+            {"GH_HOST": "wrong.example.invalid"},
+        ):
+            client = GitHubClient("example/fork", hostname="github.com")
+        with mock.patch(
+            "forensic_ingest_lib.subprocess.run",
+            return_value=response,
+        ) as run:
+            client.api("repos/example/fork/issues")
+
+        self.assertNotIn("GH_HOST", client.environment)
+        self.assertEqual(
+            [
+                "gh",
+                "api",
+                "--hostname",
+                "github.com",
+                "repos/example/fork/issues",
+            ],
+            run.call_args.args[0],
+        )
+
+    def test_github_client_rejects_path_injection_in_repository(self) -> None:
+        for value in (
+            "owner/name?x", "owner/name#x", "owner/na%2fme", "../name",
+            "owner/..", "owner/name/extra", "owner/na me", "owner/name\n",
+        ):
+            with self.subTest(value=value):
+                with self.assertRaises(ForensicIngestError):
+                    GitHubClient(value)
+
+    def test_github_client_paginates_beyond_one_hundred_pages(self) -> None:
+        client = GitHubClient("example/fork")
+
+        def page_response(endpoint: str) -> list[dict]:
+            page = int(endpoint.rsplit("page=", 1)[1])
+            count = 100 if page <= 100 else 1
+            return [
+                {"page": page, "index": index}
+                for index in range(count)
+            ]
+
+        with mock.patch.object(
+            client,
+            "api",
+            side_effect=page_response,
+        ) as api:
+            items = client.list_all("issues?state=all")
+
+        self.assertEqual(10_001, len(items))
+        self.assertEqual(101, api.call_count)
+
+    def test_merged_label_limit_is_checked_before_remote_access(self) -> None:
+        config = json.loads(self.config.read_text(encoding="utf-8"))
+        config["github"]["labels"] = [
+            f"configured-{index}"
+            for index in range(98)
+        ]
+        self.config.write_text(json.dumps(config), encoding="utf-8")
+        client = FakeGitHub()
+
+        with self.assertRaisesRegex(
+            ForensicIngestError,
+            "exceeds 100 labels",
+        ):
+            publish_github(
+                self.config,
+                self.manifest,
+                self.drafts,
+                self.state,
+                self.publication,
+                client=client,
+            )
+
+        self.assertEqual(0, client.issue_reads)
+        self.assertEqual(0, client.mutations)
+
+    def test_publication_state_database_id_drift_is_rejected_before_mutation(
+        self,
+    ) -> None:
+        client = FakeGitHub()
+        publish_github(
+            self.config,
+            self.manifest,
+            self.drafts,
+            self.state,
+            self.publication,
+            client=client,
+        )
+        publication = json.loads(self.publication.read_text(encoding="utf-8"))
+        child_id = next(
+            identifier
+            for identifier, entry in publication["issues"].items()
+            if entry["number"] == 2
+        )
+        publication["issues"][child_id]["id"] = client.issues[1]["id"]
+        publication["issues"][child_id]["parent_linked"] = False
+        self.publication.write_text(json.dumps(publication), encoding="utf-8")
+        before = client.mutations
+
+        with self.assertRaisesRegex(
+            ForensicIngestError,
+            "database ID drift",
+        ):
+            publish_github(
+                self.config,
+                self.manifest,
+                self.drafts,
+                self.state,
+                self.publication,
+                client=client,
+            )
+
+        self.assertEqual(before, client.mutations)
+        self.assertEqual({1: [2]}, client.children)
+
+    def test_existing_issue_drift_is_rejected_before_label_creation(self) -> None:
+        client = FakeGitHub()
+        publish_github(
+            self.config,
+            self.manifest,
+            self.drafts,
+            self.state,
+            self.publication,
+            client=client,
+        )
+        client.labels.remove("fixture")
+        client.issues[1]["title"] = "human-modified title"
+        before = client.mutations
+        with self.assertRaisesRegex(
+            ForensicIngestError,
+            "title drift",
+        ):
+            publish_github(
+                self.config,
+                self.manifest,
+                self.drafts,
+                self.state,
+                self.publication,
+                client=client,
+            )
+        self.assertEqual(before, client.mutations)
+        self.assertNotIn("fixture", client.labels)
+
+    def test_existing_parent_capacity_is_checked_before_mutation(self) -> None:
+        client = FakeGitHub()
+        drafts = json.loads(self.drafts.read_text(encoding="utf-8"))
+        parent = next(
+            issue for issue in drafts["issues"] if not issue.get("parent_id")
+        )
+        client.issues[1] = {
+            "number": 1,
+            "id": 100,
+            "html_url": "https://example.invalid/issues/1",
+            "title": parent["title"],
+            "body": parent["body"],
+            "state": "closed",
+            "state_reason": "completed",
+            "labels": [
+                {"name": label}
+                for label in sorted(set(parent["labels"] + ["fixture"]))
+            ],
+        }
+        for number in range(2, 102):
+            client.issues[number] = {
+                "number": number,
+                "id": number * 100,
+                "html_url": f"https://example.invalid/issues/{number}",
+                "title": f"unrelated {number}",
+                "body": "",
+                "state": "open",
+                "state_reason": None,
+                "labels": [],
+            }
+        client.children[1] = list(range(2, 102))
+
+        with self.assertRaisesRegex(
+            ForensicIngestError,
+            "lacks capacity",
+        ):
+            publish_github(
+                self.config,
+                self.manifest,
+                self.drafts,
+                self.state,
+                self.publication,
+                client=client,
+            )
+
+        self.assertEqual(0, client.mutations)
+        self.assertFalse(client.labels)
+        self.assertEqual(101, len(client.issues))
+
+    def test_remote_verification_retries_eventual_consistency(self) -> None:
+        client = FakeGitHub()
+        client.hidden_issue_reads_after_create = 1
+        report = publish_github(
+            self.config,
+            self.manifest,
+            self.drafts,
+            self.state,
+            self.publication,
+            client=client,
+        )
+        self.assertTrue(report["verification"]["passed"])
+        self.assertEqual([1], client.sleeps)
+
+    def test_publication_resumes_after_creation_before_closure(self) -> None:
+        client = FakeGitHub()
+        client.fail_close_once = True
+        with self.assertRaisesRegex(
+            ForensicIngestError, "simulated close interruption"
+        ):
+            publish_github(
+                self.config,
+                self.manifest,
+                self.drafts,
+                self.state,
+                self.publication,
+                client=client,
+            )
+        saved = json.loads(self.publication.read_text(encoding="utf-8"))
+        first_entry = next(iter(saved["issues"].values()))
+        self.assertFalse(first_entry["closed"])
+        self.assertEqual("open", client.issues[first_entry["number"]]["state"])
+
+        report = publish_github(
+            self.config,
+            self.manifest,
+            self.drafts,
+            self.state,
+            self.publication,
+            client=client,
+        )
+        self.assertTrue(report["verification"]["passed"])
+        self.assertTrue(
+            all(issue["state"] == "closed" for issue in client.issues.values())
+        )
+
+    def test_publication_rejects_human_reopen_after_recorded_closure(self) -> None:
+        client = FakeGitHub()
+        publish_github(
+            self.config,
+            self.manifest,
+            self.drafts,
+            self.state,
+            self.publication,
+            client=client,
+        )
+        reopened = client.issues[1]
+        reopened["state"] = "open"
+        reopened["state_reason"] = None
+        with self.assertRaisesRegex(
+            ForensicIngestError,
+            "state drift",
+        ):
+            publish_github(
+                self.config,
+                self.manifest,
+                self.drafts,
+                self.state,
+                self.publication,
+                client=client,
+            )
+
+    def test_concurrent_ingest_state_change_blocks_stale_checkpoint(self) -> None:
+        client = FakeGitHub()
+        manifest = json.loads(self.manifest.read_text(encoding="utf-8"))
+        newer_state = {
+            "schema_version": 1,
+            "profile_id": "fixture",
+            "last_verified_source_sha": manifest["source"]["tip_sha"],
+            "last_verified_run_manifest_sha256": "f" * 64,
+            "incorporated_baseline_sha": manifest["source"]["tip_sha"],
+        }
+
+        def update_state(issue_read: int) -> None:
+            if issue_read == 2:
+                self.state.write_text(
+                    json.dumps(newer_state),
+                    encoding="utf-8",
+                )
+
+        client.issue_read_hook = update_state
+        with self.assertRaisesRegex(
+            ForensicIngestError,
+            "changed concurrently",
+        ):
+            publish_github(
+                self.config,
+                self.manifest,
+                self.drafts,
+                self.state,
+                self.publication,
+                client=client,
+            )
+        self.assertEqual(
+            newer_state,
+            json.loads(self.state.read_text(encoding="utf-8")),
+        )
+
+    def test_checkpoint_compare_and_write_hold_exclusive_lock(self) -> None:
+        client = FakeGitHub()
+        lock_paths = (
+            checkpoint_lock_path(self.state),
+            checkpoint_lock_path(self.publication),
+        )
+        client.issue_read_hook = lambda _: self.assertTrue(
+            all(path.exists() for path in lock_paths)
+        )
+        original_atomic_write = sys.modules[
+            "forensic_ingest_lib"
+        ].atomic_write_json
+
+        def assert_locked_write(path: Path, value: dict) -> None:
+            if path in (self.state, self.publication):
+                self.assertTrue(all(item.exists() for item in lock_paths))
+            original_atomic_write(path, value)
+
+        with mock.patch(
+            "forensic_ingest_lib.atomic_write_json",
+            side_effect=assert_locked_write,
+        ):
+            report = publish_github(
+                self.config,
+                self.manifest,
+                self.drafts,
+                self.state,
+                self.publication,
+                client=client,
+            )
+
+        self.assertTrue(report["passed"])
+        self.assertTrue(all(not path.exists() for path in lock_paths))
+
+    def test_distinct_ingest_states_share_publication_lock(self) -> None:
+        first_client = FakeGitHub()
+        second_client = FakeGitHub()
+        first_remote_read = threading.Event()
+        release_first = threading.Event()
+        outcome: dict[str, object] = {}
+
+        def pause_first_publisher(issue_read: int) -> None:
+            if issue_read == 1:
+                first_remote_read.set()
+                if not release_first.wait(10):
+                    raise AssertionError("Timed out waiting to release first publisher")
+
+        def run_first_publisher() -> None:
+            try:
+                outcome["report"] = publish_github(
+                    self.config,
+                    self.manifest,
+                    self.drafts,
+                    self.state,
+                    self.publication,
+                    client=first_client,
+                )
+            except BaseException as exc:
+                outcome["error"] = exc
+
+        first_client.issue_read_hook = pause_first_publisher
+        thread = threading.Thread(target=run_first_publisher)
+        thread.start()
+        self.assertTrue(first_remote_read.wait(10))
+        second_state = self.fixture.root / "second-state.json"
+        try:
+            with self.assertRaisesRegex(
+                ForensicIngestError,
+                "checkpoint lock already exists",
+            ):
+                publish_github(
+                    self.config,
+                    self.manifest,
+                    self.drafts,
+                    second_state,
+                    self.publication,
+                    client=second_client,
+                )
+        finally:
+            release_first.set()
+            thread.join(30)
+
+        self.assertFalse(thread.is_alive())
+        self.assertNotIn("error", outcome)
+        self.assertTrue(outcome["report"]["passed"])
+        self.assertEqual(0, second_client.issue_reads)
+        self.assertEqual(0, second_client.mutations)
+
+    def test_independent_state_paths_share_target_transaction_lock(self) -> None:
+        first_client = FakeGitHub()
+        second_client = FakeGitHub()
+        first_remote_read = threading.Event()
+        release_first = threading.Event()
+        outcome: dict[str, object] = {}
+
+        def pause_first_publisher(issue_read: int) -> None:
+            if issue_read == 1:
+                first_remote_read.set()
+                if not release_first.wait(10):
+                    raise AssertionError("Timed out waiting to release first publisher")
+
+        def run_first_publisher() -> None:
+            try:
+                outcome["report"] = publish_github(
+                    self.config,
+                    self.manifest,
+                    self.drafts,
+                    self.state,
+                    self.publication,
+                    client=first_client,
+                )
+            except BaseException as exc:
+                outcome["error"] = exc
+
+        first_client.issue_read_hook = pause_first_publisher
+        thread = threading.Thread(target=run_first_publisher)
+        thread.start()
+        self.assertTrue(first_remote_read.wait(10))
+        second_state = self.fixture.root / "independent-state.json"
+        second_publication = self.fixture.root / "independent-publication.json"
+        try:
+            with self.assertRaisesRegex(
+                ForensicIngestError,
+                "checkpoint lock already exists",
+            ):
+                publish_github(
+                    self.config,
+                    self.manifest,
+                    self.drafts,
+                    second_state,
+                    second_publication,
+                    client=second_client,
+                )
+        finally:
+            release_first.set()
+            thread.join(30)
+
+        self.assertFalse(thread.is_alive())
+        self.assertNotIn("error", outcome)
+        self.assertTrue(outcome["report"]["passed"])
+        self.assertEqual(0, second_client.issue_reads)
+        self.assertEqual(0, second_client.mutations)
+
+    def test_existing_checkpoint_lock_fails_closed(self) -> None:
+        client = FakeGitHub()
+        lock_path = checkpoint_lock_path(self.state)
+        lock_path.write_text("other publisher\n", encoding="utf-8")
+
+        with self.assertRaisesRegex(
+            ForensicIngestError,
+            "checkpoint lock already exists",
+        ):
+            publish_github(
+                self.config,
+                self.manifest,
+                self.drafts,
+                self.state,
+                self.publication,
+                client=client,
+            )
+
+        self.assertFalse(self.state.exists())
+        self.assertEqual("other publisher\n", lock_path.read_text(encoding="utf-8"))
+        self.assertEqual(0, client.issue_reads)
+        self.assertEqual(0, client.mutations)
+
+    def test_aliased_state_paths_are_rejected_before_remote_access(self) -> None:
+        client = FakeGitHub()
+        with self.assertRaisesRegex(
+            ForensicIngestError,
+            "state paths must be distinct",
+        ):
+            publish_github(
+                self.config,
+                self.manifest,
+                self.drafts,
+                self.state,
+                self.state,
+                client=client,
+            )
+
+        self.assertEqual(0, client.issue_reads)
+        self.assertEqual(0, client.mutations)
+
+        self.state.write_text("{}\n", encoding="utf-8")
+        hardlink = self.fixture.root / "publication-hardlink.json"
+        os.link(self.state, hardlink)
+        with self.assertRaisesRegex(
+            ForensicIngestError,
+            "state paths must be distinct",
+        ):
+            publish_github(
+                self.config,
+                self.manifest,
+                self.drafts,
+                self.state,
+                hardlink,
+                client=client,
+            )
+        self.assertEqual(0, client.issue_reads)
+        self.assertEqual(0, client.mutations)
+
+        with self.assertRaisesRegex(
+            ForensicIngestError,
+            "Publication state path must be distinct from run manifest",
+        ):
+            publish_github(
+                self.config,
+                self.manifest,
+                self.drafts,
+                self.state,
+                self.manifest,
+                client=client,
+            )
+        self.assertEqual(0, client.issue_reads)
+        self.assertEqual(0, client.mutations)
+
+    def test_symlinked_state_path_updates_canonical_checkpoint(self) -> None:
+        target = self.fixture.root / "canonical-state.json"
+        target.write_text("{}\n", encoding="utf-8")
+        alias = self.fixture.root / "state-alias.json"
+        try:
+            alias.symlink_to(target)
+        except OSError as exc:
+            self.skipTest(f"File symlinks are unavailable: {exc}")
+
+        report = publish_github(
+            self.config,
+            self.manifest,
+            self.drafts,
+            alias,
+            self.publication,
+            client=FakeGitHub(),
+        )
+
+        self.assertTrue(report["passed"])
+        self.assertTrue(alias.is_symlink())
+        checkpoint = json.loads(target.read_text(encoding="utf-8"))
+        manifest = json.loads(self.manifest.read_text(encoding="utf-8"))
+        self.assertEqual(
+            manifest["source"]["tip_sha"],
+            checkpoint["last_verified_source_sha"],
+        )
+        self.assertEqual(
+            manifest["source"]["tip_sha"],
+            checkpoint["incorporated_baseline_sha"],
+        )
+
+    def test_publication_rejects_forged_incorporation_before_remote_writes(
+        self,
+    ) -> None:
+        self.fixture.git("switch", "source")
+        self.fixture.commit("source two", {"src/two.py": "two = 2\n"})
+        self.fixture.git("switch", "fork")
+        analyze_repository(self.config, self.state, self.manifest)
+        drafts = render_drafts(self.manifest, self.drafts)
+        self.assertFalse(drafts["all_commits_incorporated"])
+        drafts["all_commits_incorporated"] = True
+        drafts["drafts_sha256"] = sha256_value(
+            {key: value for key, value in drafts.items() if key != "drafts_sha256"}
+        )
+        self.drafts.write_text(json.dumps(drafts), encoding="utf-8")
+        client = FakeGitHub()
+        with self.assertRaisesRegex(
+            ForensicIngestError, "incorporation state"
+        ):
+            publish_github(
+                self.config,
+                self.manifest,
+                self.drafts,
+                self.state,
+                self.publication,
+                client=client,
+            )
+        self.assertEqual(0, client.mutations)
+
+    def test_dependency_cycle_is_rejected_before_remote_access(self) -> None:
+        drafts = json.loads(self.drafts.read_text())
+        first = drafts["issues"][0]
+        second = drafts["issues"][1]
+        first["dependencies"] = [second["logical_id"]]
+        second["dependencies"] = [first["logical_id"]]
+        drafts["drafts_sha256"] = sha256_value(
+            {key: value for key, value in drafts.items() if key != "drafts_sha256"}
+        )
+        self.drafts.write_text(json.dumps(drafts), encoding="utf-8")
+        client = FakeGitHub()
+        with self.assertRaisesRegex(ForensicIngestError, "dependency cycle"):
+            publish_github(
+                self.config,
+                self.manifest,
+                self.drafts,
+                self.state,
+                self.publication,
+                client=client,
+            )
+        self.assertEqual(0, client.mutations)
+
+    def test_malformed_draft_issue_is_rejected_without_traceback(self) -> None:
+        manifest = json.loads(self.manifest.read_text(encoding="utf-8"))
+        drafts = json.loads(self.drafts.read_text(encoding="utf-8"))
+        malformed_issues = (
+            [[]],
+            [
+                {
+                    **drafts["issues"][0],
+                    "labels": "not-an-array",
+                }
+            ],
+            [
+                {
+                    **drafts["issues"][0],
+                    "state": ["open"],
+                }
+            ],
+        )
+        for issues in malformed_issues:
+            with self.subTest(issues=issues):
+                altered = dict(drafts)
+                altered["issues"] = issues
+                altered["drafts_sha256"] = sha256_value(
+                    {
+                        key: value
+                        for key, value in altered.items()
+                        if key != "drafts_sha256"
+                    }
+                )
+                with self.assertRaisesRegex(
+                    ForensicIngestError,
+                    "Draft issue 0",
+                ):
+                    validate_drafts(manifest, altered)
+
+    def test_undeclared_body_reference_is_rejected(self) -> None:
+        manifest = json.loads(self.manifest.read_text())
+        drafts = json.loads(self.drafts.read_text())
+        drafts["issues"][0]["body"] += "\n{{issue:not-a-dependency}}"
+        drafts["drafts_sha256"] = sha256_value(
+            {key: value for key, value in drafts.items() if key != "drafts_sha256"}
+        )
+        with self.assertRaisesRegex(
+            ForensicIngestError, "undeclared issue references"
+        ):
+            validate_drafts(manifest, drafts)
+
+    def test_draft_requires_exactly_one_matching_marker(self) -> None:
+        manifest = json.loads(self.manifest.read_text(encoding="utf-8"))
+        drafts = json.loads(self.drafts.read_text(encoding="utf-8"))
+        drafts["issues"][0]["body"] += (
+            "\n<!-- forensic-ingest-id:foreign-logical-id -->"
+        )
+        drafts["drafts_sha256"] = sha256_value(
+            {
+                key: value
+                for key, value in drafts.items()
+                if key != "drafts_sha256"
+            }
+        )
+        with self.assertRaisesRegex(
+            ForensicIngestError,
+            "exactly one matching marker",
+        ):
+            validate_drafts(manifest, drafts)
+
+    def test_body_limit_is_rejected(self) -> None:
+        manifest = json.loads(self.manifest.read_text())
+        drafts = json.loads(self.drafts.read_text())
+        drafts["issues"][0]["body"] = (
+            drafts["issues"][0]["body"].split("\n", 1)[0]
+            + "\n"
+            + ("x" * 60_001)
+        )
+        drafts["drafts_sha256"] = sha256_value(
+            {key: value for key, value in drafts.items() if key != "drafts_sha256"}
+        )
+        with self.assertRaisesRegex(ForensicIngestError, "safe size"):
+            validate_drafts(manifest, drafts)
+
+
+if __name__ == "__main__":
+    unittest.main()

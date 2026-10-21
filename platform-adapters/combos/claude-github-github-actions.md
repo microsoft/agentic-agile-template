@@ -15,6 +15,10 @@
 2. Follow the issue tracker quickstart: [../issue-trackers/github/quickstart.md](../issue-trackers/github/quickstart.md)
 3. Follow the CI/CD setup guide: [../ci-cd/README.md](../ci-cd/README.md)
 
+## Review Cycle
+
+Pattern: [Agentic Review Cycle](../../docs/agentic-review-cycle.md). On this stack, trigger the Claude review (GitHub Action or `/review`) once on the pushed head after a complete, validated batch, not per commit. Read findings from the review comments and summary, confirm they refer to the current head SHA, and log each round (findings H/M/L, classes, triage, fix commit) in the PR. Let GitHub Actions run the full suite on the exact head before requesting review.
+
 ## Notes
 
 This is the original stack used to develop this template. The combo file currently ships as a **Stub** (skeleton structure only) and will be promoted to **Maintained** once the full end-to-end quickstart and verification steps are written and tested against a real downstream repository (planned as a follow-up to the v2 CI/CD adapter layer).

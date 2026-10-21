@@ -22,15 +22,24 @@ This repository is built on the **Agentic-Agile Template** — a starter framewo
 | `MANIFESTO.md` | The Agentic-Agile Manifesto: 5 values and 13 principles for human-agent development. |
 | `STYLE.md` | Code conventions, commit message format, PR structure, documentation standards. |
 | `CONTRIBUTING.md` | Human contribution workflow and PR guidelines. |
+| `CONTRIBUTING-AGENTS.md` | Agent-facing contribution guide for this template repo (adapter anatomy, structural invariants). |
+| `LICENSE` | MIT License. |
 | `SECURITY.md` | Security policy and vulnerability reporting process. |
 | `mcp.json` | Example MCP server configuration for agent tooling. |
 | `platform-adapters/` | **Layered agent / tracker / CI-CD context.** Three sub-layers: `agent-tools/` (one adapter per AI agent), `issue-trackers/` (one per backlog system), `ci-cd/` (planned v2), plus `combos/` for pre-assembled stacks. |
 | `docs/agent-surface-selection.md` | Guide to choosing the right agent surface for different task types. |
 | `docs/evaluation-framework.md` | Eight-dimension framework for measuring human-agent partnership effectiveness. |
+| `docs/agentic-review-cycle.md` | Tool-neutral pattern for getting a PR through repeated review in few rounds (class-level fixes, batching, stop condition, review-cycle log). |
 | `docs/epic-decomposition-example.md` | Worked example: decompose an epic into stories, assign file ownership, plan waves. |
 | `docs/history/` | Implementation plan and design history (Phase 1/Phase 2 multi-platform generalization). |
-| `.github/copilot-instructions.md` | GitHub Copilot-specific instruction file. |
+| `docs/retrospectives/` | Retrospectives (e.g., the June 2026 consolidation) with originating prompts and review reports. |
+| `docs/templates/` | Reusable document templates (e.g., `retrospective.md`). |
+| `docs/sample-issues/` | Worked-example issues (TaskFlow epic decomposition and onboarding walkthrough), kept as read-only markdown. |
+| `.github/copilot-instructions.md` | GitHub Copilot-specific instruction file (stub pointing to the Copilot adapter). |
 | `.github/ISSUE_TEMPLATE/agentic-story.md` | Structured story template with scope, file ownership, and acceptance criteria. |
+| `.github/contributor-templates/` | Issue and PR templates for contributing to this template repo (see `CONTRIBUTING-AGENTS.md`). |
+| `.github/instructions/` | Path-scoped agent instructions (e.g., `agent-skills.instructions.md` for files under `skills/`). |
+| `.github/skills/` | Optional, portable Agent Skills (e.g., `agentic-agile-forensic-ingest`); see `.github/skills/README.md`. |
 
 ---
 
@@ -45,8 +54,18 @@ In all states, apply these baseline behaviors:
 - **Ask before assuming.** When requirements are ambiguous, ask. Never guess on incomplete specifications.
 - **Keep changes minimal.** Prefer targeted, focused changes over broad refactoring unless the spec requires it.
 - **Follow conventions.** Consult `STYLE.md` for code style, commit format, and PR structure.
+- **Apply the review cycle.** See [Review Cycle](#review-cycle) below.
 
 **This role is additive.** You complement the human's judgment and domain knowledge. You do not replace it. At decision points where business context, stakeholder priorities, or architectural trade-offs are required, surface the question to the human rather than deciding unilaterally.
+
+### Review Cycle
+
+When your work goes through PR review (Copilot, Claude, CodeRabbit, or a human), follow [`docs/agentic-review-cycle.md`](docs/agentic-review-cycle.md):
+
+- Run the pre-review self-audit before the first review request.
+- Fix whole classes of findings structurally (allowlists over denylists) with class-level regression tests; after any high-severity finding, write one holistic fix plan before editing.
+- Batch fixes and request one exact-head review per validated batch; agree the stop condition up front (no high/medium findings).
+- Record rounds in the PR's Review-Cycle Log (see `STYLE.md` §4). Never merge on your own behalf.
 
 ---
 

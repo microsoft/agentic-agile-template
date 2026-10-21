@@ -56,6 +56,28 @@ Closes #
 - [ ] `CONTRIBUTING-AGENTS.md` invariants verified — adapter anatomy compliance confirmed (all required files present, correct structure)
 - [ ] Parent `README.md` updated if this PR adds an adapter or quickstart combo
 
+## Pre-Review Self-Audit
+
+<!-- Run before requesting the first review. See docs/agentic-review-cycle.md. -->
+
+- [ ] For each mechanism touched, its class is named and the fix covers the class, not one member
+- [ ] Denylists replaced by allowlists where inputs are open-ended (env, paths, headers, options)
+- [ ] Each new lock/cache/allowlist/retry checked against its own failure modes (partial failure, rerun, concurrent run, differing environment)
+- [ ] Class-level regression tests exist; malformed input and boundary cases covered
+- [ ] Full suite run once on the exact head being submitted
+- [ ] `git status`/diff shows only intended files
+- [ ] Docs and acceptance criteria updated to match behavior
+
+## Review-Cycle Log
+
+<!-- Required for every PR. Add one row per review round, including a single clean round. -->
+
+| Round | Review ID / head SHA | Findings (H/M/L) | Finding → class map | Origin counts (pre-existing / introduced / unknown) | Fix commit(s) | Validation evidence |
+|---|---|---|---|---|---|---|
+|   |   |   |   |   |   |   |
+
+Stop condition: <!-- agreed up front -->. Remaining low-severity items: <!-- list -->.
+
 ## Additional Notes
 
 <!-- Optional. Add context for reviewers, known limitations, follow-up work, or anything else worth noting. -->

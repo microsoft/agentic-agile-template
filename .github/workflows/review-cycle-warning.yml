@@ -1,0 +1,68 @@
+name: Review Cycle Warning
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  pull-requests: read
+  contents: read
+
+jobs:
+  review-cycle-warning:
+    name: Review Cycle Warning
+    runs-on: ubuntu-latest
+    steps:
+      - name: Warn on missing review-cycle log or excessive review rounds
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Advisory only: never fail the job.
+            try {
+              const prNumber =
+                context.payload.pull_request?.number ??
+                Number(context.payload.review?.pull_request_url?.split('/').pop());
+
+              if (!prNumber) {
+                core.warning('Could not determine PR number; skipping review-cycle check.');
+                return;
+              }
+
+              const { data: pr } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+              });
+
+              const reviews = await github.paginate(github.rest.pulls.listReviews, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+                per_page: 100,
+              });
+
+              const submitted = reviews.filter((r) => r.state !== 'PENDING' && r.commit_id);
+              // A round is one distinct reviewed head, so multiple reviewers or repeated submissions on one head count once.
+              const rounds = new Set(submitted.map((r) => r.commit_id)).size;
+              core.info(`PR #${prNumber} has ${rounds} review round(s) across ${submitted.length} submission(s).`);
+
+              const hasLog = /^#{1,6}\s*Review[- ]Cycle Log\b/im.test(pr.body ?? '');
+              if (!hasLog) {
+                core.warning(
+                  `PR #${prNumber} description has no "Review-Cycle Log" heading. ` +
+                  'The log is required for every PR; add one per docs/agentic-review-cycle.md.'
+                );
+              }
+
+              if (rounds >= 4) {
+                core.warning(
+                  `PR #${prNumber} has reached ${rounds} review rounds. Stop fixing findings one at a time: ` +
+                  'group open findings by root cause and write a single holistic fix plan ' +
+                  '(see docs/agentic-review-cycle.md).'
+                );
+              }
+            } catch (error) {
+              core.warning(`Review-cycle check could not complete: ${error.message}`);
+            }
