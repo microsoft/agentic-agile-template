@@ -179,7 +179,32 @@ Windows directory and drive returned by the kernel's `GetSystemWindowsDirectoryW
 This prevents the shell API's own first-use environment expansion from observing
 spoofed `ProgramData`, `SystemDrive`, home or temp settings. Native lookup,
 child-process startup, timeout and invalid-output failures fail closed, without
-an inherited-environment or guessed-drive fallback. Publication also holds exclusive sibling
+an inherited-environment or guessed-drive fallback.
+
+On POSIX, an administrator must provision
+`/var/tmp/agentic-agile-forensic-ingest-locks` as a real directory, owned by root
+(UID 0), with mode `01777`, before `publish-github --execute`. The sticky bit
+protects other accounts' active lock files; root ownership is necessary because
+a sticky directory's owner can still remove any file inside it. A caller-owned
+directory, a symlink, a missing directory, an unreadable directory or different
+mode fails explicitly before lock creation or GitHub access. Publication never
+creates, chmods, chowns or redirects this shared directory automatically.
+
+After inspecting the exact path and confirming it is not a symlink, an
+administrator can provision or reconcile the directory with:
+
+```sh
+sudo install -d -o 0 -g 0 -m 1777 /var/tmp/agentic-agile-forensic-ingest-locks
+```
+
+Do not delete active locks or recursively change their permissions. Existing
+caller-created directories require this explicit administrator reconciliation;
+an unprivileged publisher cannot safely change the directory to root ownership.
+Dry-run publication does not inspect or require this shared directory and
+remains read-only. Ordinary sibling checkpoint directories retain their
+existing creation and ownership behavior.
+
+Publication also holds exclusive sibling
 checkpoint locks for both the ingest state and publication
 state, acquired in deterministic path order, from before the initial marker
 scan through every remote mutation, final verification, fingerprint comparison,

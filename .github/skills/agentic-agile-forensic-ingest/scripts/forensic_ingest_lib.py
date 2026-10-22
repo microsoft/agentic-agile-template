@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
+import stat
 import subprocess
 import sys
 import tempfile
@@ -388,6 +389,35 @@ def exclusive_checkpoint_lock(
             lock_path.unlink()
         except FileNotFoundError:
             pass
+
+
+def _validate_publication_lock_directory(directory: Path) -> None:
+    if os.name == "nt":
+        return
+    message = (
+        f"Publication target lock directory {directory} requires administrator "
+        "provisioning: a root-owned directory with mode 01777, not a symlink"
+    )
+    try:
+        metadata = directory.lstat()
+    except OSError as exc:
+        raise ForensicIngestError(f"{message}: {redact(exc)}") from exc
+    if (
+        not stat.S_ISDIR(metadata.st_mode)
+        or metadata.st_uid != 0
+        or stat.S_IMODE(metadata.st_mode) != 0o1777
+    ):
+        raise ForensicIngestError(message)
+
+
+@contextmanager
+def exclusive_publication_target_lock(
+    state_path: Path, target_key: str
+) -> Iterator[None]:
+    lock_path = publication_target_lock_path(target_key)
+    _validate_publication_lock_directory(lock_path.parent)
+    with exclusive_checkpoint_lock(state_path, lock_path=lock_path):
+        yield
 
 
 def _read_json_object(
@@ -3461,10 +3491,7 @@ def publish_github(
         key=lambda path: os.path.normcase(str(checkpoint_lock_path(path))),
     )
     target_key = publication_target_key(load_json(config_path))
-    with exclusive_checkpoint_lock(
-        publication_state_path,
-        lock_path=publication_target_lock_path(target_key),
-    ):
+    with exclusive_publication_target_lock(publication_state_path, target_key):
         with exclusive_checkpoint_lock(lock_paths[0]):
             with exclusive_checkpoint_lock(lock_paths[1]):
                 return _publish_github_locked(

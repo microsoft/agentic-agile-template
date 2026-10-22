@@ -20,5 +20,6 @@ git -C <template-clone> ls-tree -r <pinned-commit> -- .github/skills/<skill>
 
 Each skill ships a `.gitattributes` (`* -text`) so line-ending conversion
 (`core.autocrlf`) cannot alter bytes on archive, checkout, or commit. Compare
-each installed file's SHA-256 with `git cat-file blob <blob-id>` from the
-`ls-tree` listing, and record the pinned commit in the downstream change.
+each installed file's SHA-256 with the SHA-256 of the raw bytes emitted by
+`git cat-file blob <blob-id>` from the `ls-tree` listing, and record the pinned
+commit in the downstream change. The blob command emits bytes, not a digest.

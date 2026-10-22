@@ -25,6 +25,9 @@ Agentic-Agile issue drafts, and optionally publish verified records to GitHub.
 - GitHub CLI (`gh`) authenticated only when running `publish-github`.
 - A clean understanding of the source ref, fork ref, and initial immutable
   baseline.
+- On POSIX, administrator provisioning of the shared lock directory before
+  `publish-github --execute`; see the
+  [publication-state contract](./references/manifest-schema.md).
 
 ## Safe Workflow
 

@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import stat
 import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from unittest import mock
 
@@ -168,6 +170,223 @@ class PublicationCheckpointInputTests(unittest.TestCase):
             Path, "read_text", side_effect=PermissionError("unreadable checkpoint")
         ), self.assertRaisesRegex(ForensicIngestError, "Invalid JSON file"):
             load_json(self.path, required=False)
+
+
+class SharedPublicationDirectoryTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.directory = SCRIPTS / "shared-lock-fixture"
+
+    def validate(self) -> None:
+        sys.modules["forensic_ingest_lib"]._validate_publication_lock_directory(
+            self.directory
+        )
+
+    def test_root_owned_sticky_directory_is_accepted_without_mutation(self) -> None:
+        metadata = mock.Mock(st_uid=0, st_mode=stat.S_IFDIR | 0o1777)
+        with mock.patch("forensic_ingest_lib.os.name", "posix"), mock.patch.object(
+            Path, "lstat", return_value=metadata
+        ), mock.patch.object(Path, "mkdir") as mkdir, mock.patch.object(
+            os, "chmod"
+        ) as chmod, mock.patch.object(os, "chown", create=True) as chown:
+            self.validate()
+        mkdir.assert_not_called()
+        chmod.assert_not_called()
+        chown.assert_not_called()
+
+    def test_untrusted_owner_modes_and_file_types_fail_closed(self) -> None:
+        cases = (
+            (1000, stat.S_IFDIR | 0o1777),
+            (0, stat.S_IFDIR | 0o755),
+            (0, stat.S_IFDIR | 0o777),
+            (0, stat.S_IFDIR | 0o1770),
+            (0, stat.S_IFDIR | 0o3777),
+            (0, stat.S_IFREG | 0o1777),
+            (0, stat.S_IFLNK | 0o1777),
+        )
+        for owner, mode in cases:
+            with self.subTest(owner=owner, mode=oct(mode)):
+                metadata = mock.Mock(st_uid=owner, st_mode=mode)
+                with mock.patch(
+                    "forensic_ingest_lib.os.name", "posix"
+                ), mock.patch.object(
+                    Path, "lstat", return_value=metadata
+                ), mock.patch.object(Path, "mkdir") as mkdir, self.assertRaisesRegex(
+                    ForensicIngestError, "administrator.*root-owned.*01777"
+                ):
+                    self.validate()
+                mkdir.assert_not_called()
+
+    def test_missing_and_unreadable_directories_are_not_created(self) -> None:
+        for error in (FileNotFoundError("missing"), PermissionError("unreadable")):
+            with self.subTest(error=type(error).__name__):
+                with mock.patch(
+                    "forensic_ingest_lib.os.name", "posix"
+                ), mock.patch.object(
+                    Path, "lstat", side_effect=error
+                ), mock.patch.object(Path, "mkdir") as mkdir, self.assertRaisesRegex(
+                    ForensicIngestError, "administrator.*root-owned.*01777"
+                ):
+                    self.validate()
+                mkdir.assert_not_called()
+
+    def test_windows_does_not_apply_posix_permission_bits(self) -> None:
+        with mock.patch("forensic_ingest_lib.os.name", "nt"), mock.patch.object(
+            Path, "lstat"
+        ) as inspect:
+            self.validate()
+        inspect.assert_not_called()
+
+    def test_directory_is_validated_before_target_lock_creation(self) -> None:
+        module = sys.modules["forensic_ingest_lib"]
+        lock = self.directory / "publication-fixture.lock"
+        with mock.patch(
+            "forensic_ingest_lib.publication_target_lock_path", return_value=lock
+        ), mock.patch(
+            "forensic_ingest_lib._validate_publication_lock_directory",
+            side_effect=ForensicIngestError("unsafe shared directory"),
+        ) as validate, mock.patch(
+            "forensic_ingest_lib.exclusive_checkpoint_lock"
+        ) as acquire, self.assertRaisesRegex(
+            ForensicIngestError, "unsafe shared directory"
+        ):
+            with module.exclusive_publication_target_lock(
+                self.directory / "state.json", "0" * 64
+            ):
+                self.fail("Unsafe shared directory was accepted")
+        validate.assert_called_once_with(self.directory)
+        acquire.assert_not_called()
+
+
+@unittest.skipUnless(
+    os.name == "posix" and os.geteuid() == 0,
+    "Cross-account DAC coverage requires an isolated POSIX root test process",
+)
+class SharedPublicationDirectoryIntegrationTests(unittest.TestCase):
+    def test_cross_account_targets_contend_without_unlinking_active_locks(self) -> None:
+        child = """
+import os, sys
+from pathlib import Path
+from unittest import mock
+sys.path.insert(0, sys.argv[1])
+from forensic_ingest_lib import ForensicIngestError, exclusive_publication_target_lock
+directory, key, operation, ready = sys.argv[2:]
+directory = Path(directory)
+os.umask(0o077)
+lock = directory / ("publication-" + key + ".lock")
+if operation == "unlink":
+    try:
+        lock.unlink()
+    except PermissionError:
+        print("protected", flush=True)
+    else:
+        raise AssertionError("Another account removed the active lock")
+else:
+    with mock.patch("forensic_ingest_lib.publication_target_lock_path", return_value=lock):
+        try:
+            with exclusive_publication_target_lock(
+                directory / ("state-" + str(os.geteuid()) + ".json"), key
+            ):
+                print("acquired", flush=True)
+                if operation == "hold":
+                    Path(ready).write_text("ready", encoding="ascii")
+                    sys.stdin.readline()
+        except ForensicIngestError as error:
+            if operation == "invalid" and "administrator provisioning" in str(error):
+                print("invalid", flush=True)
+            elif "checkpoint lock already exists" in str(error):
+                print("blocked", flush=True)
+            else:
+                raise
+"""
+        with tempfile.TemporaryDirectory(
+            prefix="forensic-shared-lock-test-", dir="/tmp"
+        ) as temporary:
+            directory = Path(temporary)
+            directory.chmod(0o1777)
+            original = directory.stat()
+
+            def start(uid, key, operation, target_directory=directory):
+                def drop_credentials():
+                    os.setgroups([])
+                    os.setgid(uid)
+                    os.setuid(uid)
+
+                return subprocess.Popen(
+                    [
+                        sys.executable, "-I", "-c", child, str(SCRIPTS),
+                        str(target_directory), key, operation,
+                        str(target_directory / f"ready-{uid}"),
+                    ],
+                    stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE, text=True, encoding="utf-8",
+                    preexec_fn=drop_credentials,
+                )
+
+            def run(uid, key, operation, target_directory=directory):
+                process = start(uid, key, operation, target_directory)
+                try:
+                    output, errors = process.communicate(timeout=15)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.communicate(timeout=15)
+                    raise
+                self.assertEqual(0, process.returncode, errors)
+                return output.strip()
+
+            for first, second in ((65534, 65533), (65533, 65534)):
+                with self.subTest(holder_uid=first, contender_uid=second):
+                    key = "0" * 64
+                    lock = directory / f"publication-{key}.lock"
+                    holder = start(first, key, "hold")
+                    try:
+                        deadline = time.monotonic() + 15
+                        while not (directory / f"ready-{first}").exists():
+                            self.assertIsNone(holder.poll(), "Publisher exited before ready")
+                            self.assertLess(time.monotonic(), deadline, "Publisher not ready")
+                            time.sleep(0.02)
+                        self.assertEqual(first, lock.stat().st_uid)
+                        self.assertEqual("blocked", run(second, key, "once"))
+                        self.assertEqual("acquired", run(second, "1" * 64, "once"))
+                        self.assertEqual("protected", run(second, key, "unlink"))
+                        self.assertTrue(lock.exists())
+                    finally:
+                        try:
+                            output, errors = holder.communicate("\n", timeout=15)
+                        except subprocess.TimeoutExpired:
+                            holder.kill()
+                            holder.communicate(timeout=15)
+                            raise
+                    self.assertEqual(0, holder.returncode, errors)
+                    self.assertEqual("acquired", output.strip())
+                    self.assertFalse(lock.exists())
+                    self.assertEqual(
+                        (original.st_uid, stat.S_IMODE(original.st_mode)),
+                        (directory.stat().st_uid, stat.S_IMODE(directory.stat().st_mode)),
+                    )
+            for name, owner, mode in (
+                ("private", 0, 0o755),
+                ("no-sticky-bit", 0, 0o777),
+                ("caller-owned", 65534, 0o1777),
+            ):
+                with self.subTest(invalid_directory=name):
+                    invalid = directory / name
+                    invalid.mkdir()
+                    os.chown(invalid, owner, 0)
+                    invalid.chmod(mode)
+                    before = invalid.stat()
+                    self.assertEqual("invalid", run(65533, "0" * 64, "invalid", invalid))
+                    after = invalid.stat()
+                    self.assertEqual(
+                        (before.st_uid, before.st_mode), (after.st_uid, after.st_mode)
+                    )
+                    self.assertEqual([], list(invalid.iterdir()))
+            missing = directory / "missing"
+            self.assertEqual("invalid", run(65533, "0" * 64, "invalid", missing))
+            self.assertFalse(missing.exists())
+            alias = directory / "symlink"
+            alias.symlink_to(directory, target_is_directory=True)
+            self.assertEqual("invalid", run(65533, "0" * 64, "invalid", alias))
+            self.assertTrue(alias.is_symlink())
 
 
 class PublicationLockTests(unittest.TestCase):
@@ -406,6 +625,13 @@ class WindowsIsolatedLookupTests(unittest.TestCase):
 class PublicationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.fixture = GitFixture()
+        if os.name == "posix":
+            # FakeGitHub scenarios are separate from the real cross-UID DAC tests.
+            patcher = mock.patch(
+                "forensic_ingest_lib._validate_publication_lock_directory"
+            )
+            patcher.start()
+            self.addCleanup(patcher.stop)
         baseline = self.fixture.commit("baseline", {"README.md": "base\n"})
         self.fixture.git("switch", "-c", "source")
         self.fixture.commit("source one", {"src/one.py": "one = 1\n"})
@@ -421,6 +647,38 @@ class PublicationTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.fixture.close()
+
+    def test_unsafe_shared_directory_precedes_checkpoint_and_remote_access(self) -> None:
+        client = FakeGitHub()
+        with mock.patch(
+            "forensic_ingest_lib._validate_publication_lock_directory",
+            side_effect=ForensicIngestError("unsafe shared directory"),
+        ), self.assertRaisesRegex(ForensicIngestError, "unsafe shared directory"):
+            publish_github(
+                self.config, self.manifest, self.drafts,
+                self.state, self.publication, client=client,
+            )
+        self.assertEqual(0, client.issue_reads)
+        self.assertEqual(0, client.mutations)
+        for path in (self.state, self.publication):
+            self.assertFalse(path.exists())
+            self.assertFalse(checkpoint_lock_path(path).exists())
+
+    def test_dry_run_needs_no_shared_directory_provisioning(self) -> None:
+        client = FakeGitHub()
+        with mock.patch(
+            "forensic_ingest_lib._validate_publication_lock_directory",
+            side_effect=ForensicIngestError("unsafe shared directory"),
+        ) as validate:
+            publish_github(
+                self.config, self.manifest, self.drafts,
+                self.state, self.publication, client=client, execute=False,
+            )
+        validate.assert_not_called()
+        self.assertEqual(0, client.issue_reads)
+        self.assertEqual(0, client.mutations)
+        self.assertFalse(self.state.exists())
+        self.assertFalse(self.publication.exists())
 
     def test_partial_publication_resumes_and_rerun_is_idempotent(self) -> None:
         client = FakeGitHub()
