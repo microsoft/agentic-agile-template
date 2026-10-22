@@ -1034,12 +1034,46 @@ class AnalysisTests(unittest.TestCase):
         )
 
     def test_guard_detects_changes_in_ignored_submodules(self) -> None:
-        self.fixture.create_submodule_divergence()
-        self.fixture.git("config", "submodule.module.ignore", "all")
-        repository = GitRepository(self.fixture.repo)
-        before = repository.guard()
-        self.fixture.write("module/README.md", "concurrent worktree change\n")
-        self.assertNotEqual(before, repository.guard())
+        configuration = self.fixture.root / "inherited.gitconfig"
+        configuration.write_text("[core]\n\tautocrlf = true\n", encoding="utf-8")
+        environments = (
+            {"GIT_CONFIG_GLOBAL": str(configuration)},
+            {"GIT_CONFIG_SYSTEM": str(configuration)},
+            {
+                "GIT_CONFIG_COUNT": "1",
+                "GIT_CONFIG_KEY_0": "core.autocrlf",
+                "GIT_CONFIG_VALUE_0": "true",
+            },
+            {"GIT_CONFIG_PARAMETERS": "'core.autocrlf'='true'"},
+        )
+        for environment in environments:
+            with self.subTest(environment=tuple(environment)), mock.patch.dict(
+                os.environ, environment
+            ):
+                fixture = GitFixture()
+                try:
+                    fixture.create_submodule_divergence()
+                    fixture.git("config", "submodule.module.ignore", "all")
+                    readme = fixture.repo / "module" / "README.md"
+                    metadata = readme.stat()
+                    # Require content inspection, not a coincidentally clean stat cache.
+                    os.utime(
+                        readme,
+                        ns=(metadata.st_atime_ns, metadata.st_mtime_ns - 2_000_000_000),
+                    )
+                    repository = GitRepository(fixture.repo)
+                    self.assertEqual(
+                        b"",
+                        repository.run_bytes(
+                            "status", "--porcelain=v1", "-z", "--untracked-files=all"
+                        ),
+                        "Inherited configuration dirtied the canonical fixture baseline",
+                    )
+                    before = repository.guard()
+                    fixture.write("module/README.md", "concurrent worktree change\n")
+                    self.assertNotEqual(before, repository.guard())
+                finally:
+                    fixture.close()
 
     def test_source_equivalence_compares_only_divergent_history(self) -> None:
         baseline = self.fixture.commit("baseline", {"README.md": "base\n"})

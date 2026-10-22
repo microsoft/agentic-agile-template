@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
 from typing import Any
+
+from forensic_ingest_lib import GIT_ENVIRONMENT_ALLOWLIST
 
 
 TEST_ROOT = Path(__file__).resolve().parent
@@ -14,6 +17,17 @@ TEST_ROOT = Path(__file__).resolve().parent
 
 class GitFixture:
     def __init__(self) -> None:
+        self.environment = {
+            key: value
+            for key, value in os.environ.items()
+            if key.upper() in GIT_ENVIRONMENT_ALLOWLIST
+        }
+        self.environment.update(
+            GIT_ATTR_NOSYSTEM="1",
+            GIT_CONFIG_GLOBAL=os.devnull,
+            GIT_CONFIG_SYSTEM=os.devnull,
+            GIT_TERMINAL_PROMPT="0",
+        )
         self.temporary = tempfile.TemporaryDirectory(dir=TEST_ROOT)
         self.root = Path(self.temporary.name)
         self.repo = self.root / "repository"
@@ -30,6 +44,7 @@ class GitFixture:
         result = subprocess.run(
             ["git", *arguments],
             cwd=self.repo,
+            env=self.environment,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
