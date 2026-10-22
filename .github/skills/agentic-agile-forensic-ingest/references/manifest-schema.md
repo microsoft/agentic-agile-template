@@ -180,6 +180,9 @@ This prevents the shell API's own first-use environment expansion from observing
 spoofed `ProgramData`, `SystemDrive`, home or temp settings. Native lookup,
 child-process startup, timeout and invalid-output failures fail closed, without
 an inherited-environment or guessed-drive fallback.
+Only a successful resolved location is cached for the lifetime of the process;
+failed lookups are not cached and a later attempt must perform the same guarded
+resolution again.
 
 On POSIX, an administrator must provision
 `/var/tmp/agentic-agile-forensic-ingest-locks` as a real directory, owned by root

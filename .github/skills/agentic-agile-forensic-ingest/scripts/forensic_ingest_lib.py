@@ -6,6 +6,7 @@ from contextlib import contextmanager
 import ctypes
 from ctypes import wintypes
 import fnmatch
+from functools import lru_cache
 import hashlib
 import heapq
 import json
@@ -231,6 +232,7 @@ def publication_target_key(config: Mapping[str, Any]) -> str:
     )
 
 
+@lru_cache(maxsize=1)
 def _windows_common_data_path() -> Path:
     try:
         kernel32 = ctypes.WinDLL("kernel32", winmode=0x800)

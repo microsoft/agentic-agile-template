@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import json
 import os
 from pathlib import Path
@@ -325,10 +326,10 @@ else:
             def run(uid, key, operation, target_directory=directory):
                 process = start(uid, key, operation, target_directory)
                 try:
-                    output, errors = process.communicate(timeout=15)
+                    output, errors = process.communicate(timeout=CONCURRENT_PUBLISHER_TIMEOUT)
                 except subprocess.TimeoutExpired:
                     process.kill()
-                    process.communicate(timeout=15)
+                    process.communicate(timeout=CONCURRENT_PUBLISHER_TIMEOUT)
                     raise
                 self.assertEqual(0, process.returncode, errors)
                 return output.strip()
@@ -339,7 +340,7 @@ else:
                     lock = directory / f"publication-{key}.lock"
                     holder = start(first, key, "hold")
                     try:
-                        deadline = time.monotonic() + 15
+                        deadline = time.monotonic() + CONCURRENT_PUBLISHER_TIMEOUT
                         while not (directory / f"ready-{first}").exists():
                             self.assertIsNone(holder.poll(), "Publisher exited before ready")
                             self.assertLess(time.monotonic(), deadline, "Publisher not ready")
@@ -351,10 +352,12 @@ else:
                         self.assertTrue(lock.exists())
                     finally:
                         try:
-                            output, errors = holder.communicate("\n", timeout=15)
+                            output, errors = holder.communicate(
+                                "\n", timeout=CONCURRENT_PUBLISHER_TIMEOUT
+                            )
                         except subprocess.TimeoutExpired:
                             holder.kill()
-                            holder.communicate(timeout=15)
+                            holder.communicate(timeout=CONCURRENT_PUBLISHER_TIMEOUT)
                             raise
                     self.assertEqual(0, holder.returncode, errors)
                     self.assertEqual("acquired", output.strip())
@@ -389,71 +392,126 @@ else:
             self.assertTrue(alias.is_symlink())
 
 
-class PublicationLockTests(unittest.TestCase):
-    def test_target_lock_contends_across_process_environments(self) -> None:
-        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
-            root = Path(directory)
-            for name in ("system-a", "system-b"):
-                (root / name / "ProgramData").mkdir(parents=True)
-            target_key = sha256_value({"fixture": str(root)})
-            lock_path = publication_target_lock_path(target_key)
-            child = (
-                "import sys\n"
-                "from pathlib import Path\n"
-                "sys.path.insert(0, sys.argv[3])\n"
-                "from forensic_ingest_lib import (ForensicIngestError, "
-                "exclusive_checkpoint_lock, publication_target_lock_path)\n"
-                "try:\n"
-                "    with exclusive_checkpoint_lock(Path(sys.argv[1]), "
-                "lock_path=publication_target_lock_path(sys.argv[2])):\n"
-                "        print('unexpected acquisition')\n"
-                "except ForensicIngestError as error:\n"
-                "    if 'checkpoint lock already exists' not in str(error):\n"
-                "        raise\n"
-                "    print('blocked')\n"
-            )
-            environments = (
-                {"ProgramData": str(root / "data-a")},
-                {
-                    "ProgramData": str(root / "data-b"),
-                    "ALLUSERSPROFILE": str(root / "all-users"),
-                    "TEMP": str(root / "temp"),
-                    "TMP": str(root / "tmp"),
-                    "TMPDIR": str(root / "tmpdir"),
-                },
-                {
-                    "ProgramData": str(root / "data-c"),
-                    "HOME": str(root / "home"),
-                    "USERPROFILE": str(root / "profile"),
-                    "SYSTEMROOT": str(root / "windows"),
-                    "WINDIR": str(root / "windows"),
-                    "SystemDrive": str(root / "system-a"),
-                },
-                {"SystemDrive": str(root / "system-b")},
-            )
-            with exclusive_checkpoint_lock(
-                root / "first-state.json", lock_path=lock_path
+class PublicationTestBudgetTests(unittest.TestCase):
+    def test_process_thread_and_readiness_waits_use_the_shared_budget(self) -> None:
+        tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                operation = node.func.attr
+                subprocess_run = (
+                    operation == "run"
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "subprocess"
+                )
+                if subprocess_run or operation in {"communicate", "wait", "join"}:
+                    timeout = next(
+                        (item.value for item in node.keywords if item.arg == "timeout"),
+                        None,
+                    )
+                    if timeout is None and operation in {"wait", "join"} and node.args:
+                        timeout = node.args[0]
+                    with self.subTest(line=node.lineno, operation=operation):
+                        self.assertIsInstance(timeout, ast.Name)
+                        self.assertEqual("CONCURRENT_PUBLISHER_TIMEOUT", timeout.id)
+            if (
+                isinstance(node, ast.BinOp)
+                and isinstance(node.left, ast.Call)
+                and isinstance(node.left.func, ast.Attribute)
+                and node.left.func.attr == "monotonic"
             ):
-                for environment in environments:
-                    with self.subTest(environment=tuple(environment)):
-                        result = subprocess.run(
-                            [
-                                sys.executable, "-c", child,
-                                str(root / "independent-state.json"),
-                                target_key, str(SCRIPTS),
-                            ],
-                            env={**os.environ, **environment},
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE,
-                            text=True,
-                            encoding="utf-8",
-                            timeout=30,
-                            check=False,
-                        )
-                        self.assertEqual(0, result.returncode, result.stderr)
-                        self.assertEqual("blocked", result.stdout.strip())
-                        self.assertTrue(lock_path.exists())
-            self.assertFalse(lock_path.exists())
+                with self.subTest(line=node.lineno, operation="readiness deadline"):
+                    self.assertIsInstance(node.op, ast.Add)
+                    self.assertIsInstance(node.right, ast.Name)
+                    self.assertEqual("CONCURRENT_PUBLISHER_TIMEOUT", node.right.id)
+
+
+class PublicationLockTests(unittest.TestCase):
+    def setUp(self) -> None:
+        temporary = tempfile.TemporaryDirectory(dir=Path(__file__).parent)
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        for name in ("system-a", "system-b"):
+            (self.root / name / "ProgramData").mkdir(parents=True)
+        self.target_key = sha256_value({"fixture": str(self.root)})
+        self.environments = (
+            {"ProgramData": str(self.root / "data-a")},
+            {
+                "ProgramData": str(self.root / "data-b"),
+                "ALLUSERSPROFILE": str(self.root / "all-users"),
+                "TEMP": str(self.root / "temp"),
+                "TMP": str(self.root / "tmp"),
+                "TMPDIR": str(self.root / "tmpdir"),
+            },
+            {
+                "ProgramData": str(self.root / "data-c"),
+                "HOME": str(self.root / "home"),
+                "USERPROFILE": str(self.root / "profile"),
+                "SYSTEMROOT": str(self.root / "windows"),
+                "WINDIR": str(self.root / "windows"),
+                "SystemDrive": str(self.root / "system-a"),
+            },
+            {"SystemDrive": str(self.root / "system-b")},
+        )
+
+    @unittest.skipUnless(os.name == "nt", "Real native namespace check requires Windows")
+    def test_real_windows_namespace_ignores_cold_process_environments(self) -> None:
+        lock_path = publication_target_lock_path(self.target_key)
+        child = (
+            "import json, sys\n"
+            "sys.path.insert(0, sys.argv[1])\n"
+            "from forensic_ingest_lib import publication_target_lock_path\n"
+            "print(json.dumps(str(publication_target_lock_path(sys.argv[2]))))\n"
+        )
+        for environment in self.environments:
+            with self.subTest(environment=tuple(environment)):
+                result = subprocess.run(
+                    [
+                        sys.executable, "-I", "-c", child,
+                        str(SCRIPTS), self.target_key,
+                    ],
+                    env={**os.environ, **environment},
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    text=True, encoding="utf-8",
+                    timeout=CONCURRENT_PUBLISHER_TIMEOUT, check=False,
+                )
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertEqual(lock_path, Path(json.loads(result.stdout)))
+
+    def test_target_lock_contends_across_process_environments(self) -> None:
+        lock_path = self.root / "target-locks" / f"publication-{self.target_key}.lock"
+        child = (
+            "import sys\n"
+            "from pathlib import Path\n"
+            "sys.path.insert(0, sys.argv[3])\n"
+            "from forensic_ingest_lib import ForensicIngestError, exclusive_checkpoint_lock\n"
+            "try:\n"
+            "    with exclusive_checkpoint_lock(Path(sys.argv[1]), lock_path=Path(sys.argv[2])):\n"
+            "        print('unexpected acquisition')\n"
+            "except ForensicIngestError as error:\n"
+            "    if 'checkpoint lock already exists' not in str(error):\n"
+            "        raise\n"
+            "    print('blocked')\n"
+        )
+        with exclusive_checkpoint_lock(
+            self.root / "first-state.json", lock_path=lock_path
+        ):
+            for environment in self.environments:
+                with self.subTest(environment=tuple(environment)):
+                    result = subprocess.run(
+                        [
+                            sys.executable, "-I", "-c", child,
+                            str(self.root / "independent-state.json"),
+                            str(lock_path), str(SCRIPTS),
+                        ],
+                        env={**os.environ, **environment},
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                        text=True, encoding="utf-8",
+                        timeout=CONCURRENT_PUBLISHER_TIMEOUT, check=False,
+                    )
+                    self.assertEqual(0, result.returncode, result.stderr)
+                    self.assertEqual("blocked", result.stdout.strip())
+                    self.assertTrue(lock_path.exists())
+        self.assertFalse(lock_path.exists())
 
 
 class WindowsCommonDataTests(unittest.TestCase):
@@ -541,6 +599,9 @@ class WindowsCommonDataTests(unittest.TestCase):
 
 class WindowsIsolatedLookupTests(unittest.TestCase):
     def setUp(self) -> None:
+        resolver = sys.modules["forensic_ingest_lib"]._windows_common_data_path
+        resolver.cache_clear()
+        self.addCleanup(resolver.cache_clear)
         self.kernel32 = mock.Mock()
 
         def return_windows_directory(output, capacity):
@@ -554,6 +615,42 @@ class WindowsIsolatedLookupTests(unittest.TestCase):
 
     def lookup(self) -> Path:
         return sys.modules["forensic_ingest_lib"]._windows_common_data_path()
+
+    def test_successful_lookup_is_reused_across_environment_changes(self) -> None:
+        completed = subprocess.CompletedProcess(
+            [], 0, stdout=json.dumps(str(SCRIPTS)), stderr=""
+        )
+        with mock.patch(
+            "forensic_ingest_lib.subprocess.run", return_value=completed
+        ) as runner:
+            for drive in ("Y:", "Z:"):
+                with mock.patch.dict(
+                    os.environ, {"SystemDrive": drive, "ProgramData": drive + "\\data"}
+                ):
+                    self.assertEqual(SCRIPTS, self.lookup())
+        runner.assert_called_once()
+        self.factory.assert_called_once_with("kernel32", winmode=0x800)
+
+    def test_failed_lookup_is_retried_then_success_is_cached(self) -> None:
+        completed = subprocess.CompletedProcess(
+            [], 0, stdout=json.dumps(str(SCRIPTS)), stderr=""
+        )
+        with mock.patch(
+            "forensic_ingest_lib.subprocess.run",
+            side_effect=[
+                subprocess.TimeoutExpired("folder lookup", 30),
+                completed,
+                completed,
+            ],
+        ) as runner:
+            with self.assertRaisesRegex(
+                ForensicIngestError,
+                "Cannot resolve Windows common application data directory",
+            ):
+                self.lookup()
+            self.assertEqual(SCRIPTS, self.lookup())
+            self.assertEqual(SCRIPTS, self.lookup())
+        self.assertEqual(2, runner.call_count)
 
     def test_child_environment_contains_only_kernel_derived_values(self) -> None:
         completed = subprocess.CompletedProcess(
@@ -625,6 +722,14 @@ class WindowsIsolatedLookupTests(unittest.TestCase):
 class PublicationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.fixture = GitFixture()
+        patcher = mock.patch(
+            "forensic_ingest_lib.publication_target_lock_path",
+            side_effect=lambda key: (
+                self.fixture.root / "target-locks" / f"publication-{key}.lock"
+            ),
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
         if os.name == "posix":
             # FakeGitHub scenarios are separate from the real cross-UID DAC tests.
             patcher = mock.patch(
@@ -647,6 +752,24 @@ class PublicationTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.fixture.close()
+
+    def test_fake_publication_target_locks_belong_to_the_fixture(self) -> None:
+        module = sys.modules["forensic_ingest_lib"]
+        with mock.patch(
+            "forensic_ingest_lib._windows_common_data_path",
+            side_effect=AssertionError("FakeGitHub accessed the machine-wide root"),
+        ):
+            for key in ("0" * 64, "1" * 64):
+                self.assertEqual(
+                    self.fixture.root / "target-locks" / f"publication-{key}.lock",
+                    module.publication_target_lock_path(key),
+                )
+            report = publish_github(
+                self.config, self.manifest, self.drafts,
+                self.state, self.publication, client=FakeGitHub(),
+            )
+        self.assertTrue(report["passed"])
+        self.assertEqual([], list((self.fixture.root / "target-locks").iterdir()))
 
     def test_unsafe_shared_directory_precedes_checkpoint_and_remote_access(self) -> None:
         client = FakeGitHub()
