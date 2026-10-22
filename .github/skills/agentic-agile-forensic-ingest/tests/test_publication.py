@@ -13,6 +13,9 @@ from unittest import mock
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
+# Cover the bounded native lookup plus real validation on slow test hosts.
+CONCURRENT_PUBLISHER_TIMEOUT = 120
+
 from forensic_ingest_lib import (  # noqa: E402
     ForensicIngestError,
     GitHubClient,
@@ -1336,14 +1339,14 @@ class PublicationTests(unittest.TestCase):
     def test_distinct_ingest_states_share_publication_lock(self) -> None:
         first_client = FakeGitHub()
         second_client = FakeGitHub()
-        first_remote_read = threading.Event()
+        first_ready = threading.Event()
         release_first = threading.Event()
         outcome: dict[str, object] = {}
 
         def pause_first_publisher(issue_read: int) -> None:
             if issue_read == 1:
-                first_remote_read.set()
-                if not release_first.wait(10):
+                first_ready.set()
+                if not release_first.wait(CONCURRENT_PUBLISHER_TIMEOUT):
                     raise AssertionError("Timed out waiting to release first publisher")
 
         def run_first_publisher() -> None:
@@ -1358,13 +1361,17 @@ class PublicationTests(unittest.TestCase):
                 )
             except BaseException as exc:
                 outcome["error"] = exc
+                first_ready.set()
 
         first_client.issue_read_hook = pause_first_publisher
         thread = threading.Thread(target=run_first_publisher)
         thread.start()
-        self.assertTrue(first_remote_read.wait(10))
         second_state = self.fixture.root / "second-state.json"
         try:
+            self.assertTrue(first_ready.wait(CONCURRENT_PUBLISHER_TIMEOUT))
+            self.assertNotIn("error", outcome)
+            self.assertEqual(1, first_client.issue_reads)
+            self.assertEqual(0, first_client.mutations)
             with self.assertRaisesRegex(
                 ForensicIngestError,
                 "checkpoint lock already exists",
@@ -1379,7 +1386,7 @@ class PublicationTests(unittest.TestCase):
                 )
         finally:
             release_first.set()
-            thread.join(30)
+            thread.join(CONCURRENT_PUBLISHER_TIMEOUT)
 
         self.assertFalse(thread.is_alive())
         self.assertNotIn("error", outcome)
@@ -1390,14 +1397,14 @@ class PublicationTests(unittest.TestCase):
     def test_independent_state_paths_share_target_transaction_lock(self) -> None:
         first_client = FakeGitHub()
         second_client = FakeGitHub()
-        first_remote_read = threading.Event()
+        first_ready = threading.Event()
         release_first = threading.Event()
         outcome: dict[str, object] = {}
 
         def pause_first_publisher(issue_read: int) -> None:
             if issue_read == 1:
-                first_remote_read.set()
-                if not release_first.wait(10):
+                first_ready.set()
+                if not release_first.wait(CONCURRENT_PUBLISHER_TIMEOUT):
                     raise AssertionError("Timed out waiting to release first publisher")
 
         def run_first_publisher() -> None:
@@ -1412,14 +1419,18 @@ class PublicationTests(unittest.TestCase):
                 )
             except BaseException as exc:
                 outcome["error"] = exc
+                first_ready.set()
 
         first_client.issue_read_hook = pause_first_publisher
         thread = threading.Thread(target=run_first_publisher)
         thread.start()
-        self.assertTrue(first_remote_read.wait(10))
         second_state = self.fixture.root / "independent-state.json"
         second_publication = self.fixture.root / "independent-publication.json"
         try:
+            self.assertTrue(first_ready.wait(CONCURRENT_PUBLISHER_TIMEOUT))
+            self.assertNotIn("error", outcome)
+            self.assertEqual(1, first_client.issue_reads)
+            self.assertEqual(0, first_client.mutations)
             with self.assertRaisesRegex(
                 ForensicIngestError,
                 "checkpoint lock already exists",
@@ -1434,7 +1445,7 @@ class PublicationTests(unittest.TestCase):
                 )
         finally:
             release_first.set()
-            thread.join(30)
+            thread.join(CONCURRENT_PUBLISHER_TIMEOUT)
 
         self.assertFalse(thread.is_alive())
         self.assertNotIn("error", outcome)
