@@ -130,6 +130,14 @@ commas, control characters, or surrounding whitespace.
 
 ## Publication state (`schema_version: 1`)
 
+A missing publication-state file initializes a new publication. Every existing
+file must contain a schema-valid checkpoint, including when no issue has been
+published yet. An empty JSON object (`{}`), empty file, invalid root, unreadable
+file, or malformed checkpoint fails closed before any GitHub access in both
+dry-run and execute. Invalid checkpoints are never reset or overwritten
+automatically; a human must reconcile them. This differs from the ingest state's
+explicit support for an empty object.
+
 Publication state binds a draft hash to one GitHub repository and maps logical
 IDs to issue numbers, database IDs, URLs, hierarchy status, and closure status.
 Each issue entry also records whether the publisher created it or adopted it by
@@ -163,7 +171,15 @@ file or explicit human reconciliation.
 
 Publication captures the ingest-state fingerprint used at validation and holds
 a host-local transaction lock keyed by GitHub hostname, target repository, and
-profile ID (stored under a fixed per-host root, `/var/tmp` or `%ProgramData%`, independent of per-process temp settings), plus exclusive sibling
+profile ID (stored under a fixed per-host root: `/var/tmp` on POSIX or the Windows
+common application data directory returned by `SHGetKnownFolderPath` for
+`FOLDERID_ProgramData`). The Windows location is resolved through the operating
+system in an isolated Python child: its entire environment contains only the
+Windows directory and drive returned by the kernel's `GetSystemWindowsDirectoryW`.
+This prevents the shell API's own first-use environment expansion from observing
+spoofed `ProgramData`, `SystemDrive`, home or temp settings. Native lookup,
+child-process startup, timeout and invalid-output failures fail closed, without
+an inherited-environment or guessed-drive fallback. Publication also holds exclusive sibling
 checkpoint locks for both the ingest state and publication
 state, acquired in deterministic path order, from before the initial marker
 scan through every remote mutation, final verification, fingerprint comparison,

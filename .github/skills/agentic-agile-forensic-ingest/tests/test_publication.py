@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import threading
 import unittest
 from unittest import mock
@@ -17,6 +18,9 @@ from forensic_ingest_lib import (  # noqa: E402
     GitHubClient,
     analyze_repository,
     checkpoint_lock_path,
+    exclusive_checkpoint_lock,
+    load_json,
+    publication_target_lock_path,
     publish_github as _publish_github,
     render_drafts,
     sha256_value,
@@ -117,6 +121,283 @@ class FakeGitHub:
         issue = self.issues[number]
         issue.update(payload)
         return issue
+
+
+class PublicationCheckpointInputTests(unittest.TestCase):
+    def setUp(self) -> None:
+        temporary = tempfile.TemporaryDirectory(dir=Path(__file__).parent)
+        self.addCleanup(temporary.cleanup)
+        self.path = Path(temporary.name) / "publication.json"
+        self.github = {"repository": "example/fork"}
+        self.drafts = {"drafts_sha256": "0" * 64, "issues": []}
+
+    def test_existing_empty_publication_state_is_not_missing(self) -> None:
+        self.path.write_text("{}\n", encoding="utf-8")
+        checkpoint_before = self.path.read_bytes()
+        with self.assertRaisesRegex(
+            ForensicIngestError, "Unsupported publication-state schema_version"
+        ):
+            sys.modules["forensic_ingest_lib"]._load_publication_state(
+                self.path, self.github, self.drafts
+            )
+        self.assertEqual(checkpoint_before, self.path.read_bytes())
+
+    def test_missing_and_valid_empty_progress_checkpoints_are_supported(self) -> None:
+        loader = sys.modules["forensic_ingest_lib"]._load_publication_state
+        initial = loader(self.path, self.github, self.drafts)
+        self.assertFalse(self.path.exists())
+        self.assertEqual({}, initial["issues"])
+        self.assertEqual({}, initial["creation_intents"])
+        self.path.write_text(json.dumps(initial), encoding="utf-8")
+        self.assertEqual(initial, loader(self.path, self.github, self.drafts))
+
+    def test_optional_ingest_json_still_supports_empty_objects(self) -> None:
+        self.assertEqual({}, load_json(self.path, required=False))
+        with self.assertRaisesRegex(ForensicIngestError, "does not exist"):
+            load_json(self.path)
+        self.path.write_text("{}", encoding="utf-8")
+        self.assertEqual({}, load_json(self.path, required=False))
+
+    def test_optional_json_read_errors_are_not_treated_as_missing(self) -> None:
+        with mock.patch.object(
+            Path, "exists", return_value=False
+        ), mock.patch.object(
+            Path, "read_text", side_effect=PermissionError("unreadable checkpoint")
+        ), self.assertRaisesRegex(ForensicIngestError, "Invalid JSON file"):
+            load_json(self.path, required=False)
+
+
+class PublicationLockTests(unittest.TestCase):
+    def test_target_lock_contends_across_process_environments(self) -> None:
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
+            root = Path(directory)
+            for name in ("system-a", "system-b"):
+                (root / name / "ProgramData").mkdir(parents=True)
+            target_key = sha256_value({"fixture": str(root)})
+            lock_path = publication_target_lock_path(target_key)
+            child = (
+                "import sys\n"
+                "from pathlib import Path\n"
+                "sys.path.insert(0, sys.argv[3])\n"
+                "from forensic_ingest_lib import (ForensicIngestError, "
+                "exclusive_checkpoint_lock, publication_target_lock_path)\n"
+                "try:\n"
+                "    with exclusive_checkpoint_lock(Path(sys.argv[1]), "
+                "lock_path=publication_target_lock_path(sys.argv[2])):\n"
+                "        print('unexpected acquisition')\n"
+                "except ForensicIngestError as error:\n"
+                "    if 'checkpoint lock already exists' not in str(error):\n"
+                "        raise\n"
+                "    print('blocked')\n"
+            )
+            environments = (
+                {"ProgramData": str(root / "data-a")},
+                {
+                    "ProgramData": str(root / "data-b"),
+                    "ALLUSERSPROFILE": str(root / "all-users"),
+                    "TEMP": str(root / "temp"),
+                    "TMP": str(root / "tmp"),
+                    "TMPDIR": str(root / "tmpdir"),
+                },
+                {
+                    "ProgramData": str(root / "data-c"),
+                    "HOME": str(root / "home"),
+                    "USERPROFILE": str(root / "profile"),
+                    "SYSTEMROOT": str(root / "windows"),
+                    "WINDIR": str(root / "windows"),
+                    "SystemDrive": str(root / "system-a"),
+                },
+                {"SystemDrive": str(root / "system-b")},
+            )
+            with exclusive_checkpoint_lock(
+                root / "first-state.json", lock_path=lock_path
+            ):
+                for environment in environments:
+                    with self.subTest(environment=tuple(environment)):
+                        result = subprocess.run(
+                            [
+                                sys.executable, "-c", child,
+                                str(root / "independent-state.json"),
+                                target_key, str(SCRIPTS),
+                            ],
+                            env={**os.environ, **environment},
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            text=True,
+                            encoding="utf-8",
+                            timeout=30,
+                            check=False,
+                        )
+                        self.assertEqual(0, result.returncode, result.stderr)
+                        self.assertEqual("blocked", result.stdout.strip())
+                        self.assertTrue(lock_path.exists())
+            self.assertFalse(lock_path.exists())
+
+
+class WindowsCommonDataTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.shell32 = mock.Mock()
+        self.ole32 = mock.Mock()
+        self.ole32.CoInitializeEx.return_value = 0
+        self.libraries = {"shell32": self.shell32, "ole32": self.ole32}
+        patcher = mock.patch(
+            "ctypes.WinDLL",
+            side_effect=lambda name, **options: self.libraries[name],
+            create=True,
+        )
+        self.factory = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def lookup(self) -> Path:
+        return sys.modules["forensic_ingest_lib"]._windows_common_data_path_from_api()
+
+    def test_lookup_balances_com_and_frees_the_folder_pointer(self) -> None:
+        def return_folder(identifier, flags, token, output):
+            self.assertEqual(16, len(identifier))
+            self.assertEqual(0, flags)
+            self.assertIsNone(token)
+            output._obj.value = str(SCRIPTS)
+            return 0
+
+        self.shell32.SHGetKnownFolderPath.side_effect = return_folder
+        for status in (0, 1, -2147417850):
+            with self.subTest(com_status=status):
+                self.shell32.reset_mock()
+                self.ole32.reset_mock()
+                self.factory.reset_mock()
+                self.ole32.CoInitializeEx.return_value = status
+                self.assertEqual(SCRIPTS, self.lookup())
+                self.ole32.CoTaskMemFree.assert_called_once()
+                self.assertEqual(
+                    1 if status >= 0 else 0,
+                    self.ole32.CoUninitialize.call_count,
+                )
+                self.factory.assert_has_calls(
+                    [
+                        mock.call("shell32", winmode=0x800),
+                        mock.call("ole32", winmode=0x800),
+                    ]
+                )
+
+    def test_lookup_failures_free_memory_and_balance_com(self) -> None:
+        for status, value in (
+            (-2147024891, str(SCRIPTS)),
+            (1, str(SCRIPTS)),
+            (0, None),
+            (0, ""),
+            (0, "relative-folder"),
+        ):
+            with self.subTest(status=status, folder=value):
+                self.ole32.reset_mock()
+
+                def return_folder(identifier, flags, token, output):
+                    output._obj.value = value
+                    return status
+
+                self.shell32.SHGetKnownFolderPath.side_effect = return_folder
+                with self.assertRaisesRegex(
+                    ForensicIngestError,
+                    "Cannot resolve Windows common application data directory",
+                ):
+                    self.lookup()
+                self.ole32.CoTaskMemFree.assert_called_once()
+                self.ole32.CoUninitialize.assert_called_once()
+
+    def test_library_and_com_initialization_errors_fail_closed(self) -> None:
+        self.factory.side_effect = OSError("native lookup unavailable")
+        with self.assertRaisesRegex(ForensicIngestError, "native lookup unavailable"):
+            self.lookup()
+        self.ole32.CoInitializeEx.assert_not_called()
+        self.factory.side_effect = lambda name, **options: self.libraries[name]
+        self.ole32.CoInitializeEx.return_value = -2147467259
+        with self.assertRaisesRegex(ForensicIngestError, "COM initialization failed"):
+            self.lookup()
+        self.shell32.SHGetKnownFolderPath.assert_not_called()
+        self.ole32.CoTaskMemFree.assert_not_called()
+        self.ole32.CoUninitialize.assert_not_called()
+
+
+class WindowsIsolatedLookupTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.kernel32 = mock.Mock()
+
+        def return_windows_directory(output, capacity):
+            output.value = "X:\\Windows"
+            return len(output.value)
+
+        self.kernel32.GetSystemWindowsDirectoryW.side_effect = return_windows_directory
+        patcher = mock.patch("ctypes.WinDLL", return_value=self.kernel32, create=True)
+        self.factory = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def lookup(self) -> Path:
+        return sys.modules["forensic_ingest_lib"]._windows_common_data_path()
+
+    def test_child_environment_contains_only_kernel_derived_values(self) -> None:
+        completed = subprocess.CompletedProcess(
+            [], 0, stdout=json.dumps(str(SCRIPTS)), stderr=""
+        )
+        with mock.patch(
+            "forensic_ingest_lib.subprocess.run", return_value=completed
+        ) as runner, mock.patch.dict(
+            os.environ, {"SystemDrive": "Y:", "ProgramData": "untrusted"}
+        ):
+            self.assertEqual(SCRIPTS, self.lookup())
+        self.factory.assert_called_once_with("kernel32", winmode=0x800)
+        self.assertEqual(
+            {"SystemRoot": "X:\\Windows", "WINDIR": "X:\\Windows", "SystemDrive": "X:"},
+            runner.call_args.kwargs["env"],
+        )
+        self.assertIn("-I", runner.call_args.args[0])
+        self.assertEqual(30, runner.call_args.kwargs["timeout"])
+
+    def test_kernel_failure_never_launches_a_child(self) -> None:
+        for length, path in ((0, ""), (32768, "X:\\Windows"), (8, "relative")):
+            with self.subTest(length=length, path=path):
+                def return_bad_directory(output, capacity):
+                    output.value = path
+                    return length
+
+                self.kernel32.GetSystemWindowsDirectoryW.side_effect = return_bad_directory
+                with mock.patch(
+                    "forensic_ingest_lib.subprocess.run"
+                ) as runner, self.assertRaisesRegex(
+                    ForensicIngestError, "system Windows directory lookup failed"
+                ):
+                    self.lookup()
+                runner.assert_not_called()
+
+    def test_failed_or_invalid_child_output_has_no_fallback(self) -> None:
+        for result in (
+            subprocess.CompletedProcess([], 1, stdout="", stderr="lookup failed"),
+            subprocess.CompletedProcess([], 0, stdout="not json", stderr=""),
+            subprocess.CompletedProcess([], 0, stdout="null", stderr=""),
+            subprocess.CompletedProcess([], 0, stdout='""', stderr=""),
+            subprocess.CompletedProcess([], 0, stdout='"relative"', stderr=""),
+            subprocess.CompletedProcess([], 0, stdout="{}", stderr=""),
+        ):
+            with self.subTest(output=result.stdout, code=result.returncode):
+                with mock.patch(
+                    "forensic_ingest_lib.subprocess.run", return_value=result
+                ), self.assertRaisesRegex(
+                    ForensicIngestError,
+                    "Cannot resolve Windows common application data directory",
+                ):
+                    self.lookup()
+
+    def test_child_startup_errors_and_timeouts_fail_closed(self) -> None:
+        for error in (
+            OSError("child startup failed"),
+            subprocess.TimeoutExpired("folder lookup", 30),
+        ):
+            with self.subTest(error=type(error).__name__):
+                with mock.patch(
+                    "forensic_ingest_lib.subprocess.run", side_effect=error
+                ), self.assertRaisesRegex(
+                    ForensicIngestError,
+                    "Cannot resolve Windows common application data directory",
+                ):
+                    self.lookup()
 
 
 class PublicationTests(unittest.TestCase):
@@ -549,6 +830,11 @@ class PublicationTests(unittest.TestCase):
         cases = (
             ("{not json", "Invalid JSON file"),
             ("[]", "JSON root must be an object"),
+            ("", "Invalid JSON file"),
+            ("null", "JSON root must be an object"),
+            ("false", "JSON root must be an object"),
+            ("0", "JSON root must be an object"),
+            ('""', "JSON root must be an object"),
             (
                 {**base, "schema_version": True, "issues": {}},
                 "Unsupported publication-state schema_version",
@@ -609,6 +895,7 @@ class PublicationTests(unittest.TestCase):
                 {**base, "issues": {}, "creation_intents": {"unknown": "0" * 64}},
                 "unknown creation intents",
             ),
+            ({}, "Unsupported publication-state schema_version"),
         )
         for publication, message in cases:
             for execute in (False, True):
@@ -637,6 +924,40 @@ class PublicationTests(unittest.TestCase):
                     self.assertFalse(self.state.exists())
                     self.assertEqual(0, client.issue_reads)
                     self.assertEqual(0, client.mutations)
+
+    def test_empty_checkpoint_after_interruption_blocks_duplicate_creation(
+        self,
+    ) -> None:
+        client = FakeGitHub()
+        client.fail_close_once = True
+        with self.assertRaisesRegex(ForensicIngestError, "close interruption"):
+            publish_github(
+                self.config, self.manifest, self.drafts, self.state,
+                self.publication, client=client,
+            )
+        self.assertEqual(1, len(client.issues))
+        client.hidden_issue_reads_after_create = 100
+        self.publication.write_text("{}\n", encoding="utf-8")
+        checkpoint_before = self.publication.read_bytes()
+        reads_before = client.issue_reads
+        mutations_before = client.mutations
+        creates_before = client.create_attempts
+        for execute in (False, True):
+            with self.subTest(execute=execute):
+                with self.assertRaisesRegex(
+                    ForensicIngestError,
+                    "Unsupported publication-state schema_version",
+                ):
+                    publish_github(
+                        self.config, self.manifest, self.drafts, self.state,
+                        self.publication, client=client, execute=execute,
+                    )
+                self.assertEqual(checkpoint_before, self.publication.read_bytes())
+                self.assertFalse(self.state.exists())
+                self.assertEqual(reads_before, client.issue_reads)
+                self.assertEqual(mutations_before, client.mutations)
+                self.assertEqual(creates_before, client.create_attempts)
+                self.assertEqual(1, len(client.issues))
 
     def test_publication_state_cannot_resume_on_another_hostname(self) -> None:
         client = FakeGitHub()

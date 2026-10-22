@@ -3,19 +3,23 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import ctypes
+from ctypes import wintypes
 import fnmatch
 import hashlib
 import heapq
 import json
 import os
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
 import subprocess
+import sys
 import tempfile
 import time
 import unicodedata
 from string import Template
 from typing import Any, Callable, Iterable, Iterator, Mapping, Optional
+from uuid import UUID
 
 
 SCHEMA_VERSION = 1
@@ -226,10 +230,125 @@ def publication_target_key(config: Mapping[str, Any]) -> str:
     )
 
 
+def _windows_common_data_path() -> Path:
+    try:
+        kernel32 = ctypes.WinDLL("kernel32", winmode=0x800)
+        kernel32.GetSystemWindowsDirectoryW.argtypes = (
+            wintypes.LPWSTR, wintypes.UINT,
+        )
+        kernel32.GetSystemWindowsDirectoryW.restype = wintypes.UINT
+        windows_directory = ctypes.create_unicode_buffer(32768)
+        length = kernel32.GetSystemWindowsDirectoryW(
+            windows_directory, len(windows_directory)
+        )
+        windows_path = PureWindowsPath(windows_directory.value)
+        if length == 0 or length >= len(windows_directory) or not windows_path.is_absolute():
+            raise ForensicIngestError(
+                "Cannot resolve Windows common application data directory: "
+                "system Windows directory lookup failed"
+            )
+        # The shell API itself expands SystemDrive on first use. Query it in a
+        # child whose entire environment comes from the kernel, not the caller.
+        result = subprocess.run(
+            [
+                sys.executable, "-I", "-c",
+                "import json, sys; sys.path.insert(0, sys.argv[1]); "
+                "from forensic_ingest_lib import _windows_common_data_path_from_api; "
+                "print(json.dumps(str(_windows_common_data_path_from_api())))",
+                str(Path(__file__).resolve().parent),
+            ],
+            env={
+                "SystemRoot": str(windows_path),
+                "WINDIR": str(windows_path),
+                "SystemDrive": windows_path.drive,
+            },
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            timeout=30,
+            check=False,
+        )
+        if result.returncode:
+            raise ForensicIngestError(
+                "Cannot resolve Windows common application data directory: "
+                f"isolated folder lookup failed: {redact(result.stderr)}"
+            )
+        folder = json.loads(result.stdout)
+        if not isinstance(folder, str) or not folder or not Path(folder).is_absolute():
+            raise ForensicIngestError(
+                "Cannot resolve Windows common application data directory: "
+                "isolated folder path must be non-empty and absolute"
+            )
+        return _canonical_path(Path(folder))
+    except (
+        AttributeError, OSError, UnicodeError, json.JSONDecodeError,
+        subprocess.TimeoutExpired,
+    ) as exc:
+        raise ForensicIngestError(
+            "Cannot resolve Windows common application data directory: "
+            f"{redact(exc)}"
+        ) from exc
+
+
+def _windows_common_data_path_from_api() -> Path:
+    try:
+        shell32 = ctypes.WinDLL("shell32", winmode=0x800)
+        ole32 = ctypes.WinDLL("ole32", winmode=0x800)
+        shell32.SHGetKnownFolderPath.argtypes = (
+            ctypes.c_void_p, wintypes.DWORD, wintypes.HANDLE,
+            ctypes.POINTER(ctypes.c_wchar_p),
+        )
+        shell32.SHGetKnownFolderPath.restype = ctypes.c_long
+        ole32.CoInitializeEx.argtypes = (ctypes.c_void_p, wintypes.DWORD)
+        ole32.CoInitializeEx.restype = ctypes.c_long
+        ole32.CoUninitialize.argtypes = ()
+        ole32.CoUninitialize.restype = None
+        ole32.CoTaskMemFree.argtypes = (ctypes.c_void_p,)
+        ole32.CoTaskMemFree.restype = None
+        # FOLDERID_ProgramData is resolved by Windows, not process variables.
+        folder_id = (ctypes.c_ubyte * 16).from_buffer_copy(
+            UUID("62AB5D82-FDC1-4DC3-A9DD-070D1D495D97").bytes_le
+        )
+        folder_path = ctypes.c_wchar_p()
+        com_status = ole32.CoInitializeEx(None, 0)
+        # RPC_E_CHANGED_MODE means COM is already initialized in another mode.
+        if com_status < 0 and (com_status & 0xFFFFFFFF) != 0x80010106:
+            raise ForensicIngestError(
+                "Cannot resolve Windows common application data directory: "
+                f"COM initialization failed (0x{com_status & 0xFFFFFFFF:08x})"
+            )
+        try:
+            status = shell32.SHGetKnownFolderPath(
+                folder_id, 0, None, ctypes.byref(folder_path)
+            )
+            if status != 0:
+                raise ForensicIngestError(
+                    "Cannot resolve Windows common application data directory: "
+                    f"folder lookup failed (0x{status & 0xFFFFFFFF:08x})"
+                )
+            if not folder_path.value or not Path(folder_path.value).is_absolute():
+                raise ForensicIngestError(
+                    "Cannot resolve Windows common application data directory: "
+                    "folder path must be non-empty and absolute"
+                )
+            return _canonical_path(Path(folder_path.value))
+        finally:
+            try:
+                ole32.CoTaskMemFree(folder_path)
+            finally:
+                if com_status >= 0:
+                    ole32.CoUninitialize()
+    except (AttributeError, OSError) as exc:
+        raise ForensicIngestError(
+            "Cannot resolve Windows common application data directory: "
+            f"{redact(exc)}"
+        ) from exc
+
+
 def publication_target_lock_path(target_key: str) -> Path:
-    # Fixed per-host root so differing TMPDIR/TEMP settings cannot split the lock.
     if os.name == "nt":
-        root = Path(os.environ.get("ProgramData") or r"C:\ProgramData")
+        root = _windows_common_data_path()
     else:
         root = Path("/var/tmp")
     return (
@@ -271,18 +390,26 @@ def exclusive_checkpoint_lock(
             pass
 
 
-def load_json(path: Path, *, required: bool = True) -> dict[str, Any]:
-    if not path.exists():
-        if required:
-            raise ForensicIngestError(f"JSON file does not exist: {path}")
-        return {}
+def _read_json_object(
+    path: Path, *, required: bool = True
+) -> Optional[dict[str, Any]]:
+    """Return None only when an optional file is absent at the read."""
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        if required:
+            raise ForensicIngestError(f"JSON file does not exist: {path}") from exc
+        return None
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise ForensicIngestError(f"Invalid JSON file {path}: {redact(exc)}") from exc
     if not isinstance(value, dict):
         raise ForensicIngestError(f"JSON root must be an object: {path}")
     return value
+
+
+def load_json(path: Path, *, required: bool = True) -> dict[str, Any]:
+    value = _read_json_object(path, required=required)
+    return {} if value is None else value
 
 
 def _reject_credential_keys(value: Any, path: str = "$") -> None:
@@ -2824,7 +2951,7 @@ def _load_publication_state(
 ) -> dict[str, Any]:
     repository_name = str(github["repository"])
     hostname = str(github.get("hostname", "github.com"))
-    publication = load_json(publication_state_path, required=False)
+    publication = _read_json_object(publication_state_path, required=False)
     publication_contract_sha256 = sha256_value(
         {
             "target_hostname": hostname,
@@ -2834,7 +2961,7 @@ def _load_publication_state(
             ),
         }
     )
-    if publication:
+    if publication is not None:
         if not _supported_schema_version(publication.get("schema_version")):
             raise ForensicIngestError("Unsupported publication-state schema_version")
         if publication.get("target_repository") != repository_name:
