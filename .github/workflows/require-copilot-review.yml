@@ -42,7 +42,7 @@ jobs:
 
             const copilotReviewed = reviews.some(
               (r) =>
-                r.user?.login === 'copilot-pull-request-reviewer' &&
+                r.user?.login === 'copilot-pull-request-reviewer[bot]' &&
                 r.state === 'COMMENTED' &&
                 r.commit_id === pr.head.sha
             );
