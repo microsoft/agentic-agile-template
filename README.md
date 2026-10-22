@@ -20,6 +20,7 @@ Agentic-Agile Development provides the process layer that makes agent collaborat
 | [`AGENTS.md`](AGENTS.md) | Universal onboarding orchestrator. Any AI coding agent reads this first. It guides a structured 6-step onboarding dialogue and activates the platform adapters appropriate for your toolchain. |
 | [`CONTRIBUTING-AGENTS.md`](CONTRIBUTING-AGENTS.md) | Guide for agents contributing to this template repository. Covers adapter anatomy, structural invariants, and how to add new adapters or quickstart combos. |
 | [`platform-adapters/`](platform-adapters/) | Three-layer adapter library: agent-tool instructions, issue-tracker integrations, and CI/CD configurations. Mix and match for your stack. |
+| [`.github/skills/`](.github/skills/) | Optional, portable Agent Skills for repeatable Agentic-Agile workflows, including evidence-backed forensic ingest and upstream-delta traceability. |
 | [`.github/contributor-templates/`](.github/contributor-templates/) | PR and issue templates for both human and agent contributors following Agentic-Agile story structure. |
 | [`MANIFESTO.md`](MANIFESTO.md) | The Agentic-Agile Manifesto: 5 values and 13 principles for human-agent software development. |
 | [`STYLE.md`](STYLE.md) | Style guide template covering code conventions, documentation, commit messages, and PR format. |
@@ -31,6 +32,11 @@ Agentic-Agile Development provides the process layer that makes agent collaborat
 | [`docs/agent-surface-selection.md`](docs/agent-surface-selection.md) | Guide to choosing the right agent surface (CLI, IDE, chat, API, cloud) for different task types. |
 | [`docs/evaluation-framework.md`](docs/evaluation-framework.md) | Eight-dimension framework for measuring the effectiveness of human-agent development partnerships. |
 | [`docs/epic-decomposition-example.md`](docs/epic-decomposition-example.md) | Worked example showing how to decompose an epic into stories, assign file ownership, and plan wave execution. |
+| [`docs/agentic-review-cycle.md`](docs/agentic-review-cycle.md) | Tool-neutral pattern for getting a PR through repeated review in few rounds (class-level fixes, batching, stop condition, review-cycle log). |
+| [`docs/retrospectives/`](docs/retrospectives/) and [`docs/templates/`](docs/templates/) | Example retrospectives and the reusable retrospective template. |
+| [`docs/history/`](docs/history/) | Design and implementation history of the multi-platform generalization. |
+| [`.github/instructions/`](.github/instructions/) | Path-scoped agent instructions (e.g., guidelines for authoring skills). |
+| [`.github/copilot-instructions.md`](.github/copilot-instructions.md) | GitHub Copilot instruction stub pointing to the Copilot adapter. |
 
 ## Platform Adapter Architecture
 

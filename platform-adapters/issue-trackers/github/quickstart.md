@@ -33,6 +33,19 @@ The template at [`.github/ISSUE_TEMPLATE/agentic-story.md`](../../../.github/ISS
 
 Each section is designed for agent consumption: the agent reads the story, understands exactly what to build, self-verifies against the acceptance criteria, and avoids touching files not listed in scope.
 
+## Review Cycle (Optional)
+
+The template also has an optional **Review Cycle** section. Fill it in to agree the stop condition, expected finding classes, and exact-head review plan up front; delete it otherwise.
+
+On GitHub:
+
+1. Paste the Review-Cycle Log and Pre-Review Self-Audit from `.github/contributor-templates/CONTRIBUTOR_PR_TEMPLATE.md` into the PR description and add a row per round.
+2. Push one batch, then request one review on the exact head (PR reviewers UI or `gh pr edit <pr> --add-reviewer <reviewer>`).
+3. Reply to and resolve each addressed thread with the fix commit.
+4. Never merge on the agent's behalf; a human merges once the stop condition is met.
+
+See [`docs/agentic-review-cycle.md`](../../../docs/agentic-review-cycle.md).
+
 ## Customizing the Template
 
 To adapt the template for your team:

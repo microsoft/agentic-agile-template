@@ -18,6 +18,10 @@ Combos are the recommended starting point. Instead of manually assembling three 
 
 > The ci-cd layer is planned for v2. Until then, combos document CI/CD setup as manual steps. See [../ci-cd/README.md](../ci-cd/README.md) for details.
 
+## Review Cycle
+
+Every combo carries a short **Review cycle** note on requesting and reading an exact-head review on its stack. The tool-neutral pattern (fix whole classes, batch review requests, stop condition, review-cycle log) is in [`docs/agentic-review-cycle.md`](../../docs/agentic-review-cycle.md). New combos should include the same note.
+
 ## Status Tiers
 
 Every combo declares one of three status tiers:

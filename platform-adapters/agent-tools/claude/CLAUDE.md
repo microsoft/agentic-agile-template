@@ -297,6 +297,18 @@ Before a PR is considered ready for merge:
 
 ---
 
+## Review Cycle
+
+Full pattern: [docs/agentic-review-cycle.md](docs/agentic-review-cycle.md).
+
+- Fix whole classes of finding (allowlist over denylist, class-level regression test), not single instances.
+- After any high-severity finding, review all open findings together, group by root cause, write one fix plan, then implement once.
+- Batch: fix everything, run the full suite once, push, then trigger the Claude review (e.g. GitHub Action or `/review`) once on the pushed head, never per finding or per commit.
+- Stop when the review reports no high or medium findings; record remaining low items instead of chasing them.
+- Hygiene: never merge on the human's behalf; reply to and resolve each thread with the fix commit; confirm the commit has only intended files.
+
+---
+
 ## Build and Run
 
 <!--

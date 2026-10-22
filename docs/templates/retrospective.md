@@ -168,6 +168,16 @@ Rate each dimension 1–5 using the rubric below. "N/A" is acceptable when data 
 
 **Summary:** ___ findings total, ___ Critical/High, ___ fixed, ___ accepted, ___ deferred.
 
+### 4.1 Review-Cycle Metrics
+
+> Source: the review-cycle log in each PR. Pattern and definitions: [`docs/agentic-review-cycle.md`](../agentic-review-cycle.md); metrics: [`docs/evaluation-framework.md`](../evaluation-framework.md) (Dimension 3).
+
+| PR | Rounds to clean | Findings per round (H/M/L, R1 → Rn) | Recurring-class share | Introduced-gap rate | Remaining low items |
+|----|-----------------|-------------------------------------|-----------------------|---------------------|---------------------|
+| #___ | | | ___% | ___% | |
+
+**Assessment:** [Did findings converge? Were classes fixed structurally? Did a pre-review self-audit run? Which introduced gaps would a self-audit have caught?]
+
 ---
 
 ## 5. Delivery Timeline

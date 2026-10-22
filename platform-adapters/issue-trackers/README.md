@@ -8,7 +8,7 @@ An **issue-trackers adapter** provides story templates and backlog conventions f
 |---------|---------|--------|-----------------|
 | [`github/`](github/) | GitHub Issues | Maintained | `.github/ISSUE_TEMPLATE/agentic-story.md` |
 
-> Additional trackers (Azure DevOps Boards, Jira, Linear, Shortcut) are on the roadmap. To propose or contribute one, see [`../../CONTRIBUTING-AGENTS.md`](../../CONTRIBUTING-AGENTS.md) §"Contributing a New Adapter".
+> Additional trackers (Azure DevOps Boards, Jira, Linear, Shortcut) are on the roadmap. To propose or contribute one, see [`../../CONTRIBUTING-AGENTS.md`](../../CONTRIBUTING-AGENTS.md) §"Adapter Anatomy" and the `new-adapter-story.md` contributor template.
 
 ## Adapter Contents
 
@@ -37,6 +37,19 @@ Every issue-trackers adapter implements the agentic-story anatomy. The core sect
 | **Wave** | Parallel execution group | Orchestrator knows which stories can run concurrently |
 
 The GitHub Issues implementation of this format lives in [`.github/ISSUE_TEMPLATE/agentic-story.md`](../../.github/ISSUE_TEMPLATE/agentic-story.md) and serves as the reference implementation.
+
+### Review-Cycle Field Mapping
+
+Stories may carry optional review-cycle data (see [`docs/agentic-review-cycle.md`](../../docs/agentic-review-cycle.md)). Trackers represent it differently; map the fields as follows.
+
+| Field | GitHub Issues / PRs | Jira | Azure DevOps | Linear |
+|-------|---------------------|------|--------------|--------|
+| **Stop condition** | "Review Cycle" section of the story body | Custom text field or description section | Custom text field or Description section | Description section |
+| **Round count** | Rows in the PR review-cycle log (or `review-round-N` label) | Custom number field | Custom integer field or tag | Number property or label (`review-round-N`) |
+| **Finding classes** | Story section; recurring classes as labels | Custom multi-select or labels | Tags or custom picklist | Labels |
+| **Review log** | Review-Cycle Log table in the PR description | Comment or custom text field linking the PR log | Work-item Discussion or linked PR log | Comment linking the PR log |
+
+Whatever the tracker, the log itself lives in the PR; the tracker holds a summary and a link.
 
 ### Why Precise Story Format Matters
 

@@ -50,7 +50,7 @@ This repository uses a **three-layer adapter system** inside `platform-adapters/
 
 ### Directory Structure
 
-> **Target structure (Phase 2):** The tree below shows the intended full structure once all platform adapters are implemented. The `platform-adapters/` layer directories exist but most individual adapter subdirectories and combo files are not yet present. Refer to what actually exists on disk before navigating to a specific path.
+> **Current structure:** The tree below reflects what exists on disk. The `ci-cd/` layer is a placeholder (README only; planned for v2) and only the `github` issue-tracker adapter exists. Verify paths on disk before navigating to a specific one.
 
 ```
 agentic-agile-template/
@@ -67,7 +67,11 @@ agentic-agile-template/
 │   ├── agent-surface-selection.md
 │   ├── evaluation-framework.md
 │   ├── epic-decomposition-example.md
-│   └── history/                       ← design and implementation history
+│   ├── agentic-review-cycle.md
+│   ├── history/                       ← design and implementation history
+│   ├── retrospectives/                ← retrospectives with originating prompts and review reports
+│   ├── sample-issues/                 ← worked-example issues (read-only)
+│   └── templates/                     ← reusable document templates
 ├── platform-adapters/
 │   ├── README.md                      ← adapter system overview and architecture diagram
 │   ├── agent-tools/
@@ -86,18 +90,18 @@ agentic-agile-template/
 │   │   └── aider/
 │   ├── issue-trackers/
 │   │   ├── README.md
-│   │   ├── github/
-│   │   ├── azure-devops/
-│   │   └── jira/
+│   │   └── github/
 │   ├── ci-cd/
-│   │   ├── README.md
-│   │   └── github-actions/
+│   │   └── README.md                  ← placeholder (planned for v2)
 │   └── combos/
 │       ├── README.md                  ← combo format, status tiers, naming convention
 │       ├── github-copilot-github-github-actions.md
 │       ├── claude-github-github-actions.md
 │       └── cursor-github-github-actions.md
 └── .github/
+    ├── copilot-instructions.md        ← stub pointing to the Copilot adapter
+    ├── instructions/                  ← path-scoped agent instructions
+    ├── skills/                        ← optional portable Agent Skills
     ├── ISSUE_TEMPLATE/                ← end-user issue templates (auto-discovered by GitHub)
     │   └── agentic-story.md
     └── contributor-templates/         ← templates for contributing to THIS template repo
@@ -186,6 +190,7 @@ The `.github/ISSUE_TEMPLATE/agentic-story.md` template is the story format that 
 4. **Validate structure.** Before opening a PR, verify the five structural invariants in the **What Not to Break** section above.
 5. **Reference the issue.** Every PR must reference its originating issue number in the description.
 6. **Use the PR template.** Complete all sections of `.github/contributor-templates/CONTRIBUTOR_PR_TEMPLATE.md` in your PR description.
+7. **Handle review by class and in batches.** Follow [`docs/agentic-review-cycle.md`](docs/agentic-review-cycle.md): run the pre-review self-audit, fix whole classes of findings, request one exact-head review per batch, and record rounds in a Review-Cycle Log in the PR.
 
 ### Checking Your Work Before Submitting
 
@@ -256,7 +261,7 @@ Walk through this checklist before marking a PR ready for review:
 
 ## Commit Message Format
 
-Use conventional commits with types appropriate to this repository:
+Use conventional commits with the types defined in [`STYLE.md`](STYLE.md#3-commit-message-format):
 
 ```
 <type>: <short summary>
@@ -269,10 +274,11 @@ Use conventional commits with types appropriate to this repository:
 | Type | Use for |
 |------|---------|
 | `feat` | New adapters, combos, or features |
+| `fix` | Bug fixes in existing adapters, combos, or other files |
 | `docs` | Documentation additions or corrections |
-| `template` | Changes to issue templates, PR templates, or contributor templates |
-| `fix` | Corrections to existing adapters, combos, or docs |
-| `chore` | Maintenance, renaming, restructuring without functional change |
+| `refactor` | Code changes that neither fix a bug nor add a feature |
+| `test` | Adding or updating tests |
+| `chore` | Build, CI, or tooling changes |
 
 **Examples:**
 
@@ -285,7 +291,7 @@ Closes #42.
 ```
 
 ```
-template: update new-adapter-story.md to include quickstart verification step
+docs: update new-adapter-story.md to include quickstart verification step
 
 The previous template did not prompt contributors to verify the quickstart.md
 end-to-end. Added a verification step as required acceptance criterion.

@@ -50,7 +50,7 @@ The human contributes architectural judgment, domain context, and quality standa
 Safety constraints, review gates, and trust boundaries are designed into the process from the start, not added after incidents. Agent capabilities are jagged and unreliable in unpredictable ways. Structural guardrails are non-negotiable.
 
 **6. Independent review is standard practice.**
-Every significant unit of work passes through independent review that challenges correctness, assumptions, and blind spots. Findings require explicit disposition: fixed, accepted, or deferred.
+Every significant unit of work passes through independent review that challenges correctness, assumptions, and blind spots. Findings require explicit disposition: fixed, accepted, or deferred. See the [Agentic Review Cycle](docs/agentic-review-cycle.md) for a tool-neutral pattern that gets work through repeated review in fewer rounds.
 
 **7. Waves, not waterfalls.**
 Work executes in small parallel batches with review gates between them. Each batch produces shippable increments. Sequential dependencies are explicit and minimized.

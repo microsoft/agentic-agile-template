@@ -86,3 +86,14 @@ your-repo/
 └── .github/
     └── copilot-instructions.md        # Copilot adapter (this file — abbreviated)
 ```
+
+## Review Cycle
+
+The template file includes a `Review cycle` section; keep it when you copy. In short:
+
+1. Fix whole classes of findings, not instances; after any high-severity finding write one holistic fix plan first.
+2. Push one validated batch, then request an exact-head review: `gh pr edit <pr> --add-reviewer @copilot`, or re-request Copilot in the PR UI after the push.
+3. Read review threads against the head SHA; stop when no high or medium findings remain.
+4. Hygiene: never merge on the human's behalf; reply to and resolve threads with the fix commit; check the commit has only intended files.
+
+Full pattern: [agentic-review-cycle.md](../../../docs/agentic-review-cycle.md).

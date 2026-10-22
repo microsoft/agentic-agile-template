@@ -21,6 +21,10 @@ The canonical GitHub Issues template lives at:
 
 GitHub auto-discovers all files in `.github/ISSUE_TEMPLATE/` and presents them when a user opens a new issue. When you fork or use this template repository, the story template is immediately available — nothing to copy or configure.
 
+## Review-Cycle Fields
+
+The story template includes an optional **Review Cycle** section (stop condition, finding classes expected, exact-head review plan). The per-round log is recorded as a table in the PR description using [`CONTRIBUTOR_PR_TEMPLATE.md`](../../../.github/contributor-templates/CONTRIBUTOR_PR_TEMPLATE.md). See [`docs/agentic-review-cycle.md`](../../../docs/agentic-review-cycle.md) and the [field mapping](../README.md#review-cycle-field-mapping).
+
 ## See Also
 
 - [`quickstart.md`](quickstart.md) — step-by-step guide for using GitHub Issues with Agentic-Agile

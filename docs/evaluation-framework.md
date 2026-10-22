@@ -82,10 +82,15 @@ The pattern: existing frameworks measure pipeline throughput. They do not measur
 - pass^k score: probability that a spec produces acceptable output across k independent trials
 - Behavioral consistency rate: percentage of repeated runs producing substantially similar implementations
 - Fault tolerance: agent recovery rate when encountering ambiguous specs, missing dependencies, or failing tests
+- Review-cycle metrics (from the [Agentic Review Cycle](agentic-review-cycle.md) pattern):
+  - Rounds to clean: number of review rounds from the first exact-head review until the agreed stop condition is met (no high/medium findings, or only negligible ones)
+  - Findings per round: count of findings by severity (H/M/L) in each round; the trend across rounds shows whether review is converging
+  - Recurring-class share: percentage of findings belonging to a root-cause class already seen earlier in the same PR, computed from the log's finding → class map (high values mean fixes are instance-level, not class-level)
+  - Introduced-gap rate: percentage of findings with origin "introduced" (defects created by this PR's changes, including a prior fix) out of all findings, computed from the log's origin counts
 
-**How to collect:** Run the same spec through agent sessions multiple times. Compare outputs for structural similarity. This is most practical as a periodic audit rather than continuous measurement.
+**How to collect:** Run the same spec through agent sessions multiple times. Compare outputs for structural similarity. This is most practical as a periodic audit rather than continuous measurement. For review-cycle metrics, read the review-cycle log recorded in each PR (round, findings H/M/L, finding → class map, origin counts) and aggregate per PR or per wave; record them in the retrospective ([template](templates/retrospective.md), section 4.1).
 
-**What good looks like:** pass^3 greater than 90%. Fault tolerance trending upward as specs improve.
+**What good looks like:** pass^3 greater than 90%. Fault tolerance trending upward as specs improve. Rounds to clean of 2 or fewer for typical PRs, findings per round decreasing in severity, recurring-class share and introduced-gap rate trending toward zero as pre-review self-audits take hold.
 
 **Scoring rubric:**
 

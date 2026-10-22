@@ -146,7 +146,18 @@ How the changes were tested. Include commands to reproduce.
 - [ ] Tests pass locally
 - [ ] Documentation updated (if applicable)
 - [ ] No unrelated changes included
+
+## Review-Cycle Log
+
+(Required for every PR. A PR that merges after a single clean round still records that one round.)
+
+| Round | Review ID / head SHA | Findings (H/M/L) | Finding → class map | Origin counts (pre-existing / introduced / unknown) | Fix commit(s) | Validation evidence |
+|---|---|---|---|---|---|---|
+
+Stop condition: <agreed up front>. Remaining low-severity items: <list>.
 ```
+
+See [`docs/agentic-review-cycle.md`](docs/agentic-review-cycle.md) for how to fill in the log.
 
 ---
 
@@ -167,6 +178,12 @@ When working with AI coding agents, these conventions improve output quality:
 - Agent-generated code should pass the same review standards as human-written code.
 - Review for correctness, not style (let formatters handle style).
 - Every review finding reaches a terminal state: fixed, accepted, or deferred.
+- **Fix the class, not the instance.** When a finding names one member of a class, fix the whole class structurally (prefer allowlists to denylists) and add a class-level regression test.
+- **Plan holistically.** After any high-severity finding, group open findings by root cause and write one fix plan before editing.
+- **Batch review requests.** Request one exact-head review after a complete, validated batch, not one per finding.
+- **Agree the stop condition up front:** no high or medium findings, or only negligible ones. Record remaining low-severity items rather than chasing them.
+
+See [`docs/agentic-review-cycle.md`](docs/agentic-review-cycle.md) for the full pattern.
 
 ### Context Files
 

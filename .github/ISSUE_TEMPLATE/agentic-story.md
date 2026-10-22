@@ -62,6 +62,14 @@ assignees: ''
 - Depends on #
 - Blocked by #
 
+## Review Cycle (optional)
+
+<!-- Optional. Fill in to plan the automated/human review loop up front. See docs/agentic-review-cycle.md. Delete this section if not needed. -->
+
+- **Stop condition:** <!-- e.g. reviewer reports no high or medium findings, or only negligible ones; remaining low items are logged, not chased -->
+- **Finding classes expected:** <!-- e.g. input validation, environment isolation, locking, hygiene -->
+- **Exact-head review plan:** <!-- Reviewer(s), and when one exact-head review is requested (after a complete, validated batch, not per finding). Full-suite run once per batch. -->
+
 ## File Ownership
 
 <!-- Explicit list of files this story owns exclusively during its wave. No other story in the same wave should touch these files. -->

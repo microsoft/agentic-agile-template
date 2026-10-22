@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "profile_id": "example-upstream",
+  "repository_path": ".",
+  "repository_identity": "organization/project",
+  "source_ref": "refs/remotes/upstream/main",
+  "fork_ref": "refs/remotes/origin/main",
+  "initial_selection": "after-baseline",
+  "initial_baseline_sha": "0000000000000000000000000000000000000000",
+  "github": {
+    "hostname": "github.com",
+    "repository": "organization/fork",
+    "labels": [
+      "agentic-agile",
+      "forensic-ingest"
+    ]
+  },
+  "contribution_suppression": {
+    "path_globs": [
+      ".agentic-agile/**",
+      ".github/skills/**",
+      "docs/agentic-agile/**"
+    ],
+    "subject_regexes": [
+      "(?i)agentic[- ]agile",
+      "(?i)forensic ingest",
+      "(?i)governance overlay"
+    ]
+  }
+}

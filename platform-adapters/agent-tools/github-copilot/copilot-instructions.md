@@ -49,6 +49,17 @@ project-root/
 - [e.g., "All API endpoints return JSON with {data, error, metadata} shape"]
 - [e.g., "Database queries go through the repository layer, never called directly"]
 
+## Review cycle
+
+Full pattern: [docs/agentic-review-cycle.md](../docs/agentic-review-cycle.md).
+
+- Fix whole classes of finding (allowlist over denylist, class-level regression test), not single instances.
+- After any high-severity finding, review all open findings together, group by root cause, write one fix plan, then implement once.
+- Batch: fix everything, run the full suite once, push, then request one exact-head review. Request it with `gh pr edit <pr> --add-reviewer @copilot`, or re-request Copilot in the PR UI after the push.
+- Read review comments and threads against the head SHA you pushed; keep unresolved threads from earlier heads in triage until each is fixed, accepted, or deferred (outdated does not mean resolved).
+- Stop when the reviewer reports no high or medium findings; record remaining low items instead of chasing them.
+- Hygiene: never merge on the human's behalf; reply to and resolve each thread with the fix commit; confirm the commit has only intended files.
+
 ## What Not to Do
 
 <!-- Explicit anti-patterns to avoid. -->

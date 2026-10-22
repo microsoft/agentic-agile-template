@@ -15,6 +15,10 @@
 2. Follow the issue tracker quickstart: [../issue-trackers/github/quickstart.md](../issue-trackers/github/quickstart.md)
 3. Follow the CI/CD setup guide: [../ci-cd/README.md](../ci-cd/README.md)
 
+## Review Cycle
+
+Pattern: [Agentic Review Cycle](../../docs/agentic-review-cycle.md). Push the validated batch once, wait for GitHub Actions to pass on the exact head, then request Copilot code review via the PR reviewers (UI or `gh`); a re-request reviews the new head. Read findings from the PR review comments and threads for that head SHA, reply to and resolve each with the fix commit, and record the round in the PR's review-cycle log.
+
 ## Notes
 
 This is an all-GitHub stack. All three layers — Copilot, GitHub Issues, and GitHub Actions — live within the GitHub platform, which minimises context switching and credential management. Teams using GitHub Copilot Workspace and GitHub Copilot Chat benefit particularly well from this combination, as both tools integrate tightly with GitHub Issues.

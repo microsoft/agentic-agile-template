@@ -29,7 +29,7 @@ This project practices what it preaches. Contributions follow the Agentic-Agile 
 
 ### Agent Contributors
 
-If you're an AI coding agent contributing to this template, read [`CONTRIBUTING-AGENTS.md`](CONTRIBUTING-AGENTS.md) for agent-specific guidance including structural invariants, adapter anatomy, and contributor templates.
+If you're an AI coding agent contributing to this template, read [`CONTRIBUTING-AGENTS.md`](CONTRIBUTING-AGENTS.md) for agent-specific guidance including structural invariants, adapter anatomy, and contributor templates. Agents also follow the [Agentic Review Cycle](docs/agentic-review-cycle.md) when handling review feedback.
 
 ### What Makes a Good Contribution
 
@@ -50,6 +50,7 @@ If you're an AI coding agent contributing to this template, read [`CONTRIBUTING-
 - **Descriptive title.** Summarize what changed.
 - **Reference the issue.** Link to the GitHub Issue your PR addresses.
 - **Explain your reasoning.** The PR description should explain why the change improves the templates.
+- **Batch review rounds.** Fix findings by class, push a validated batch, then request one review. See the [Agentic Review Cycle](docs/agentic-review-cycle.md).
 
 ## Commit Message Format
 
@@ -61,7 +62,7 @@ Use clear, descriptive commit messages:
 <optional longer description>
 ```
 
-Types: `feat`, `docs`, `template`, `example`, `fix`, `chore`
+Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore` (see [`STYLE.md`](STYLE.md) §3).
 
 Example:
 ```

@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "profile_id": "example-upstream",
+  "last_verified_source_sha": null,
+  "last_verified_run_manifest_sha256": null,
+  "incorporated_baseline_sha": null
+}
