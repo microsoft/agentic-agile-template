@@ -2071,9 +2071,26 @@ class PublicationTests(unittest.TestCase):
 
 
 class GitPolicyPublicationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.fixture = GitFixture()
+        self.addCleanup(self.fixture.close)
+        patcher = mock.patch(
+            "forensic_ingest_lib.publication_target_lock_path",
+            side_effect=lambda key: (
+                self.fixture.root / "target-locks" / f"publication-{key}.lock"
+            ),
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        if os.name == "posix":
+            patcher = mock.patch(
+                "forensic_ingest_lib._validate_publication_lock_directory"
+            )
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
     def test_interrupted_publication_resumes_across_diff_configuration_changes(self) -> None:
-        fixture = GitFixture()
-        self.addCleanup(fixture.close)
+        fixture = self.fixture
         baseline, changed, _ = fixture.create_submodule_divergence()
         config = fixture.config(baseline)
         state = fixture.state()
